@@ -1,0 +1,21 @@
+package("pnuts.lib")
+
+import("pnuts.lang.Pnuts")
+
+function isJava2() Pnuts::isJava2()
+function setVerbose(b) getContext().setVerbose(b)
+//function exit() exit(0)
+//function exit(n) {flush(); System::exit(n)}
+
+
+use("pnuts.multithread")
+
+function addShutdownHook(func){
+  th = createThread(func)
+  Runtime::getRuntime().addShutdownHook(th)
+  th
+}
+
+function removeShutdownHook(thread){
+  Runtime::getRuntime().removeShutdownHook(th)
+}

@@ -1,0 +1,23 @@
+import("javax.xml.soap.*")
+import("javax.xml.transform.TransformerFactory")
+
+function openSOAPConnection(){
+  SOAPConnectionFactory::newInstance().createConnection()
+}
+
+function createSOAPMessage(){
+  MessageFactory::newInstance().createMessage()
+}
+
+function sendSOAPMessage(source, result, endpoint){
+  connection = openSOAPConnection()
+  msg = createSOAPMessage()
+  soapPart = msg.SOAPPart
+  soapPart.content = source
+  msg.saveChanges()
+  reply = connection.call(msg, endpoint)
+  transformer = TransformerFactory::newInstance().newTransformer()
+  content = reply.SOAPPart.content
+  transformer.transform(content, result)
+  connection.close()
+}

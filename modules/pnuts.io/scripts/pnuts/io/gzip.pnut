@@ -1,0 +1,33 @@
+package("pnuts.io")
+
+import("java.util.zip.GZIPInputStream")
+import("java.util.zip.GZIPOutputStream")
+
+function zcat (in){
+   if (in instanceof String){
+     in = open(in)
+   }
+   GZIPInputStream(in)
+}
+
+function zcat (in, out){
+   if (in instanceof String){
+     in = open(in)
+   }
+   read(GZIPInputStream(in), out)
+}
+
+function gzip (stream){
+   pipe(gzip, stream)
+}
+
+function gzip (in, out){
+   if (in instanceof String){
+     in = open(in)
+   }
+   if (out instanceof String){
+     out = open(out, "w")
+   }
+   read(in, zout = GZIPOutputStream(out))
+   zout.finish()
+}

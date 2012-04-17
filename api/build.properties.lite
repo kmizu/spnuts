@@ -1,0 +1,2 @@
+javac.optimize=on
+javac.debug=off

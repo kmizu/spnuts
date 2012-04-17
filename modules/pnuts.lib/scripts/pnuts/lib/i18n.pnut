@@ -1,0 +1,111 @@
+package("pnuts.lib")
+
+import("pnuts.lang.Pnuts")
+import("java.util.Locale")
+import("java.util.ResourceBundle")
+import("java.util.MissingResourceException")
+import("java.text.*")
+
+function setFormatLocale(locale) getContext().pnuts$lib$locale = locale
+function getFormatLocale() {
+  loc = getContext().pnuts$lib$locale
+  if (loc != null) loc else getLocale()
+}
+
+if (isJava2()){
+  _getBundle = function (name){
+    cl = getContext().getClassLoader()
+    lc = getFormatLocale()
+    if (cl != null){
+      b = ResourceBundle::getBundle(name, lc, cl)
+      if (b != null) return b
+    }
+    ResourceBundle::getBundle(name, lc, Thread::currentThread().getContextClassLoader())
+  }
+} else {
+  _getBundle = function (name) ResourceBundle::getBundle(name, getFormatLocale())
+}
+import java.net.URL
+import java.net.URLClassLoader
+import java.util.Locale
+
+function getResourceBundle(url, name) getResourceBundle(url, name, getFormatLocale())
+function getResourceBundle(url, name, loc){
+   if (url instanceof URL) {
+      urls = [url]
+   } else if (url instanceof URL[]){
+      urls = url
+   } else if (url instanceof String){
+      urls = [getResource(url)]
+   } else {
+      throw "illegal argument: " + url
+   }
+   cl = URLClassLoader(urls)
+   try {
+     if (loc instanceof String) loc = Locale(loc)
+     bundle = ResourceBundle::getBundle(name, loc, cl)
+     $(
+       function formatMessage(args[]){
+         try {
+            key = args[0]
+            param = args[1..]
+            str = bundle.getString(key)
+            if (param.length > 0){
+               MessageFormat::format(str, param)
+            } else {
+               str
+            }
+          } catch (MissingResourceException e){
+             key
+          }
+        }
+      )
+   } catch (MissingResourceException e){
+      null
+   }
+}
+
+function formatMessage(args[]){
+  try {
+    name = args[0]
+    key = args[1]
+    param = args[2..]
+    bundle = _getBundle(name)
+    str = bundle.getString(key)
+    if (param.length > 0){
+       MessageFormat::format(str, param)
+    } else {
+       str
+    }
+  } catch(MissingResourceException e){
+    null
+  }
+ }
+
+function getLocalizedResource(name) {
+  getLocalizedResource(name, getFormatLocale())
+}
+
+function getLocalizedResource(name, loc) {
+  loc = getLocale(loc)
+  getLocalizedResource(name, loc.language, loc.country)
+}
+
+function getLocalizedResource(name, language, country){
+  idx = name.lastIndexOf('/')
+  if (idx > 0){
+    ext = name[idx..]
+    basename = name[0..idx - 1]
+  } else {
+    basename = ""
+    ext = name
+  }
+  r = getResource(basename + "_" + language + "_" + country + ext)
+  if (r == null){
+    r = getResource(basename + "_" + language + ext)
+    if (r == null){
+      r = getResource(name)
+    }
+  }
+  r
+}

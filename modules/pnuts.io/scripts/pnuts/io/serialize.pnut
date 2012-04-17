@@ -1,0 +1,33 @@
+package("pnuts.io")
+
+import("java.lang.String")
+import("java.io.File")
+import("java.io.OutputStream")
+import("java.io.ObjectOutputStream")
+import("java.io.InputStream")
+import("pnuts.io.PnutsObjectInputStream")
+
+function writeObject (o, f){
+    if (f instanceof OutputStream){
+       out = ObjectOutputStream(f)
+    } else if (f instanceof String || f instanceof File){
+       out = ObjectOutputStream(open(f, "w"))
+    } else {
+       ERROR("outputStreamOrStringOrFile.isExpected", f)
+    }
+    out.writeObject(o)
+    out.close()
+}
+
+function readObject (f){
+    if (f instanceof InputStream){
+       in = PnutsObjectInputStream(f, getContext())
+    } else if (f instanceof String || f instanceof File){
+       in = PnutsObjectInputStream(open(f), getContext())
+    } else {
+       ERROR("inputStreamOrStringOrFile.isExpected", f)
+    }
+    o = in.readObject()
+    in.close()
+    return o
+}

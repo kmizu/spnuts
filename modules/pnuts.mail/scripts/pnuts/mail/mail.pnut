@@ -1,0 +1,230 @@
+package("pnuts.mail")
+
+import("javax.mail.*")
+import("javax.mail.internet.*")
+import("javax.activation.*")
+import("java.util.*")
+import("java.io.*")
+import("java.net.*")
+
+function sendEmail(m) {
+  mailhost = m.mailhost
+  if (mailhost == null) mailhost = m.mailhost = "localhost"
+  props = Properties()
+  props.put("mail.smtp.host", mailhost)
+  sendEmail(m, props)
+}
+
+function sendEmail(m, props){
+  props = map(props, "P")
+  if (props["mail.smtp.host"] == null){
+    props["mail.smtp.host"] = m.mailhost
+  }
+  charset = m.charset
+  if (charset == null) charset = getContext().charset
+  if (m.userid != null && m.password != null){
+    if (m.ssl){
+       props["mail.smtp.auth"] = "true"
+       props["mail.smtp.port"] = "465"
+       props["mail.smtp.socketFactory.port"] = "465"
+       props["mail.smtp.socketFactory.class"] = "javax.net.ssl.SSLSocketFactory"
+       props["mail.smtp.socketFactory.fallback"] = "false"
+    }
+    session = Session.getDefaultInstance(props,
+                new javax.mail.Authenticator() {
+                     getPasswordAuthentication() {
+                        return new javax.mail.PasswordAuthentication(m.userid, m.password)
+                    }
+                })
+  } else {
+    session = Session::getInstance(props, null)
+  }
+  msg = MimeMessage(session)
+  msg.setFrom(emailAddress(m.from))
+  msg.setRecipients(Message$RecipientType::TO, receiverAddress(m.to))
+
+  if (m.cc != null) msg.setRecipients(Message$RecipientType::CC, receiverAddress(m.cc))
+  if (m.bcc != null) msg.setRecipients(Message$RecipientType::BCC, receiverAddress(m.bcc))
+  if (m.replyTo != null) msg.setReplyTo(receiverAddress(m.replyTo))
+
+  if (charset != null){
+    msg.setSubject(m.subject, charset)
+  } else {
+    msg.setSubject(m.subject)
+  }
+  msg.setHeader("X-Mailer", "pnuts")
+  msg.setSentDate(Date())
+
+  content = m.content
+  if (content instanceof MimeMultipart){
+    msg.setContent(content)
+  } else if (content instanceof String){
+    if (charset != null){
+      msg.setText(content, charset)
+    } else {
+      msg.setText(content)
+    }
+  } else {
+    msg.setContent(getMailContent(content))
+  }
+
+  Transport::send(msg)
+}
+
+function sendEmail(mailhost, subject, content, from, to){
+   sendEmail({"mailhost"=> mailhost,
+              "subject" => subject,
+              "content" => content,
+              "from"    => from,
+              "to"      => to})
+}
+
+function sendEmail(mailhost, subject, content, from, to, cc, bcc, replyTo, charset)
+{
+   sendEmail({"mailhost"=> mailhost,
+              "subject" => subject,
+              "content" => content,
+              "from"    => from,
+              "to"      => to,
+              "cc"      => cc,
+              "bcc"     => bcc,
+              "replyTo"     => replyTo,
+              "charset"     => charset})
+}
+
+function emailAddress(addr, personal){
+   charset = getContext().charset
+   if (charset == null){
+      InternetAddress(addr, personal)
+   } else {
+      InternetAddress(addr, personal, charset)
+   }
+}
+
+function emailAddress(addr){
+  if (addr instanceof InternetAddress){
+    addr
+  } else if (addr instanceof String){
+    InternetAddress(addr, null, getContext().charset)
+  } else {
+    throw("illegal arguments")
+  }
+}
+
+function receiverAddress(addr){
+  if (addr instanceof String){
+     [emailAddress(addr)]
+  } else if (iterable(addr)){
+     x = list()
+     for (i : addr){
+        x.add(emailAddress(i))
+     }
+     x.toArray()
+  } else {
+     [emailAddress(addr)]
+  }
+}
+
+function getMailContent(arg){
+  multipart = MimeMultipart()
+  if (arg instanceof File){
+    multipart.addBodyPart(file_part(arg))
+  } else if (arg instanceof URL){
+    multipart.addBodyPart(URL_part(arg))
+  } else if (arg instanceof MimeBodyPart){
+    multipart.addBodyPart(arg)
+  } else if (iterable(arg)){
+    for (i : arg){
+      if (i instanceof MimeBodyPart){
+        multipart.addBodyPart(i)
+      } else if (i instanceof File){
+        multipart.addBodyPart(file_part(i))
+      } else if (i instanceof URL){
+        multipart.addBodyPart(URL_part(i))
+      } else if (i instanceof String){
+        multipart.addBodyPart(text_part(i))
+      } else {
+        throw(IllegalArgumentException())
+      }
+    }
+  } else {
+    throw(IllegalArgumentException())
+  }
+  multipart  
+}
+
+function multipart(args[]){
+  multipart = MimeMultipart()
+  for (i : args) multipart.addBodyPart(i)
+  multipart  
+}
+
+function text_part(text){
+  part = MimeBodyPart()
+  part.setText(text, getContext().charset)
+  part
+}
+
+function file_part(file){
+  part = MimeBodyPart()
+  fds = FileDataSource(file)
+  part.setDataHandler(DataHandler(fds))
+  part.setFileName(fds.getName())
+  part
+}
+
+function URL_part(url){
+  part = MimeBodyPart()
+  if (url instanceof String){
+    url = URL(url)
+  }
+  ds = URLDataSource(url)
+  part.setDataHandler(DataHandler(ds))
+  part.setFileName(ds.getName())
+  part
+}
+
+function mimepart(data, mime){
+  part = MimeBodyPart()
+  dh = DataHandler(data, mime)
+  part.setDataHandler(dh)
+  part
+}
+
+function setMailCharset(charset){
+  getContext().charset = charset
+}
+
+/*** obsolete functions ... ***/
+
+function attachText(text) attachText(null, text)
+function attachFile(filename) attachFile(null, filename)
+function attachURL(url) attachURL(null, url)
+
+function attachText(multipart, text){
+  if (multipart == null) multipart = MimeMultipart()
+  part1 = MimeBodyPart()
+  part1.setText(text)
+  multipart.addBodyPart(part1)
+  multipart
+}
+
+function attachFile(multipart, filename){
+  if (multipart == null) multipart = MimeMultipart()
+  part1 = MimeBodyPart()
+  fds = FileDataSource(filename)
+  part1.setDataHandler(DataHandler(fds))
+  part1.setFileName(fds.getName())
+  multipart.addBodyPart(part1)
+  multipart
+}
+
+function attachURL(multipart, url){
+  if (multipart == null) multipart = MimeMultipart()
+  part1 = MimeBodyPart()
+  ds = URLDataSource(url)
+  part1.setDataHandler(DataHandler(ds))
+  part1.setFileName(ds.getName())
+  multipart.addBodyPart(part1)
+  multipart
+}

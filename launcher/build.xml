@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="Pnuts" default="all" basedir=".">
+
+  <property file="../build.properties"/>
+  <property file="build.properties"/>
+  <property name="src.dist" value="${install.dir}-src"/>
+
+  <target name="all" depends="install"/>
+
+  <target name="install">
+    <mkdir dir="${install.dir}/bin"/>
+    <copy todir="${install.dir}/bin">
+      <fileset file="scripts/*"/>
+    </copy>
+  </target>
+
+  <target name="src.dist">
+    <mkdir dir="${src.dist}/launcher"/>
+    <copy file="build.xml" todir="${src.dist}/launcher"/>
+    <copy todir="${src.dist}/launcher" >
+      <fileset dir="." >
+        <exclude name="**/SCCS"/>
+        <exclude name="**/BitKeeper/**"/>
+      </fileset>
+    </copy>
+  </target>
+
+
+</project>

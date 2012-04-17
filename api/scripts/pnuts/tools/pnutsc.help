@@ -1,0 +1,15 @@
+Usage: pnutsc [options] {scriptFile | jarFile} ...
+Options:
+  -help               Display this information
+  -d directory        Specify the directory in which the compiled code is saved
+  -o jar_file         Specify the JAR file in which the compiled code is saved
+  -v                  Verbose mode
+  -O                  Generate faster code
+  -no_proxy           Disable dynamic proxy generation
+  -prefix name        Specify prefix of class names
+  -main class_name    Specify the name of main class
+  -m module           Use the module
+  -impl class_name    Specify the PnutsImpl subclass
+  -encoding enc_name  Specify the character encoding of script files
+  -C                  Specify the base directory of script files
+  -J<jvm_option>      Pass <jvm_option> to java command

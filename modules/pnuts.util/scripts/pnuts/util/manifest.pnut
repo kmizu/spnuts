@@ -1,0 +1,45 @@
+package("pnuts.util")
+
+import("java.io.File")
+import("java.util.jar.JarFile")
+
+/*
+ * manifest(module_name|class_name)
+ */
+function manifest(arg){
+  manifest(arg, function (k, v) println(k + " = " + v))
+}
+
+function manifest(arg, func){
+  if (arg instanceof File){
+     jf = JarFile(arg)
+     m = jf.getManifest()
+  } else if (arg instanceof JarFile){
+     m = arg.getManifest()
+  } else {
+    if (arg instanceof String){
+      rsrc = arg.replace('.', '/').replace('-', '_') + "/init.pnut"
+      url = getResource(rsrc)
+      if (url == null){
+        rsrc = arg.replace('.', '/').replace('-', '_') + "/init.class"
+        url = getResource(rsrc)
+      }
+      if (url == null){
+        return null
+      }
+    } else if (arg instanceof Class){
+      rsrc = arg.getName().replace('.', '/').replace('-', '_') + ".class"
+      url = getResource(rsrc)
+    } else {
+      url = arg
+    }
+    conn = url.openConnection()
+    m = conn.getManifest()
+  }
+  if (m != null){
+    a = m.getMainAttributes()
+    foreach k (a.keySet()) {
+      func(k, a.getValue(k))
+    }
+  }
+}

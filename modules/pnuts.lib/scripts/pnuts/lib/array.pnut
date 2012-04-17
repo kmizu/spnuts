@@ -1,0 +1,52 @@
+package("pnuts.lib")
+
+function collect(c, cond) list(filter(c, cond))
+
+import("java.util.Vector")
+import("java.util.Arrays")
+import("java.util.List")
+
+if (defined("Arrays")){
+  function rsort(arrayOrList) reverse(sort(arrayOrList))
+  function rsort(arrayOrList, c) reverse(sort(arrayOrList, c))
+} else {
+  function sort(arrayOrVector){
+    function sort(a, low, high){
+      lo = low
+      hi = high
+      mid = 0
+      if (high > low){
+        mid = a[(low + high) / 2]
+        while (lo < hi){
+          while (lo < high && a[lo] < mid) ++lo
+	  while (hi > low && a[hi] > mid) --hi
+          if (lo <= hi){
+            t = a[lo]
+            a[lo] = a[hi]
+            a[hi] = t
+            ++lo
+            --hi
+          }
+        }
+        if (low < hi){
+	  sort(a, low, hi)
+        }
+        if (lo < high){
+	  sort(a, lo, high)
+        }
+      }
+    }
+    if (arrayOrVector instanceof Vector){
+      len = arrayOrVector.size()
+      array = Object[len]
+      arrayOrVector.copyInto(array)
+      sort(array, 0, len - 1)
+      for (i = 0; i < len; i++) {
+        arrayOrVector.setElementAt(array[i], i)
+      }
+    } else {
+      sort(arrayOrVector, 0, arrayOrVector.length - 1)
+    }
+    arrayOrVector
+  }
+}

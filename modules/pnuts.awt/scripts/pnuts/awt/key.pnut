@@ -1,0 +1,139 @@
+package("pnuts.awt")
+
+import(null)
+import("javax.swing.JComponent")
+import("javax.swing.KeyStroke")
+import("javax.swing.Action")
+import("javax.swing.AbstractAction")
+import("javax.swing.text.JTextComponent")
+import("javax.swing.InputMap")
+
+import("java.lang.Character")
+import("java.awt.Event")
+import("java.awt.event.KeyEvent")
+import("java.util.StringTokenizer")
+import("java.util.Hashtable")
+
+function defineKey(jcomp, keysym, funcOrAction) {
+    if (isArray(keysym)){
+      if (funcOrAction instanceof Action){
+	func = function (e) funcOrAction.actionPerformed(e)
+      } else {
+        func = function (e) {funcOrAction(e); flush()}
+      }
+      multiKeymap(jcomp, keysym, func)
+    } else {
+      defineKey(jcomp,
+	        keysym,
+	        funcOrAction,
+	        JComponent::WHEN_FOCUSED)
+    }
+}
+
+function makeAction(func){
+  javaAdapter(AbstractAction, $(function actionPerformed(e) func(e)))
+}
+
+function defineKey(jcomp, keysym, funcOrAction, condition) {
+    if (isFunction(funcOrAction)){
+	act = makeAction(function (e) {funcOrAction(e); flush()})
+    } else {
+	act = funcOrAction
+    }
+    ks = getKeyStroke(keysym)
+    if (defined("InputMap")){
+      jcomp.getInputMap().put(ks, act)
+      jcomp.getActionMap().put(act, act)
+    } else {
+      jcomp.registerKeyboardAction(act, ks, condition)
+    }
+}
+
+function getKeyStroke(symbol){
+    KeyStroke::getKeyStroke(symbol)
+}
+
+_keymap = Hashtable()
+
+if (defined("InputMap")){
+
+ function multiKeymap(jtext, sequence, func){
+  current = jtext.getInputMap()
+
+  defaultInputMap =
+       javaAdapter(InputMap, $(function get(ks){
+	    println(ks);flush()
+            if (ks.isOnKeyRelease() || ks.getKeyChar() == '\0') return null
+            makeAction(function (e) {
+//               jtext.setInputMap(0, current)
+//		 println("default: " + e.getActionCommand());flush()
+             })
+           }
+       ))
+
+  function getInputMap(k){
+    key = jtext.hashCode() + k
+    m = _keymap.get(key)
+    if (m != null) return m
+    m = InputMap()
+    m.setParent(defaultInputMap)
+    _keymap.put(key, m)
+    return m
+  }
+
+  key = ""
+  prev = current
+
+  for (i = 0; i < sequence.length - 1; i++){
+    key += sequence[i]
+    im = getInputMap(key)
+    ks = getKeyStroke(sequence[i])
+    prev.put(ks, makeAction(function (e){
+      jtext.setInputMap(0, im)
+    }))
+    prev = im
+  }
+  last = sequence[sequence.length - 1]
+  prev.put(getKeyStroke(last), makeAction(function (e){
+    func(e)
+    jtext.setInputMap(0, current)
+  }))
+ }
+
+} else {
+
+ function multiKeymap(jtext, motion, func){
+  function getKeymap(k){
+    m = _keymap.get(jtext.hashCode() + k)
+    if (m != null) return m
+    m = JTextComponent::addKeymap("", jtext.getKeymap())
+    _keymap.put(jtext.hashCode() + k, m)
+    return m
+  }
+
+  key = ""
+  base = getKeymap("")
+  for (i = 0; i < motion.length - 1; i++){
+    modifyKey(getKeymap(key),
+	      motion[i],
+	      (function (x, y)
+                function (e) jtext.setKeymap(getKeymap(y))) (i, key + motion[i]))
+    key += motion[i]
+  }
+  modifyKey(getKeymap(key),
+	    motion[motion.length - 1],
+	    function (e) {func(e); jtext.setKeymap(getKeymap(""));})
+  jtext.setKeymap(base)
+ }
+
+
+ function modifyKey(keymap, keysym, funcOrAction) {
+    if (isFunction(funcOrAction)){
+	act = makeAction(funcOrAction)
+    } else {
+	act = funcOrAction
+    }
+    keymap.addActionForKeyStroke(getKeyStroke(keysym), act)
+ }
+
+}

@@ -1,0 +1,54 @@
+package("pnuts.servlet")
+
+reloadUpdatedScript = (toLowerCase(getInitParameter("execute-latest-script")) != "false")
+
+function setupActions(args[]){
+  actions = map()
+  for (file : args){
+    if (file instanceof String){
+      file = getFile(file)
+    }
+    if (file.isDirectory()){
+      for (f: file.listFiles()){
+        if (f.name.endsWith(".pnut")){
+          actions[basename(f)] = compile(f, reloadUpdatedScript)
+        }
+      }
+    } else if (file.name.endsWith(".pnut")) {
+      actions[basename(file)] = compile(file, reloadUpdatedScript)
+    }
+  }
+  rs = rootScope()
+  rs["dispatch"] = 
+    function dispatch(action){
+      package(requestScope())
+      cmd = actions[action]
+      if (cmd == null) throw("Action not found: " + action)
+      run(cmd)
+   }
+}
+
+function setupPages(args[]){
+  pages = map()
+  for (file : args){
+    if (file instanceof String){
+      file = getFile(file)
+    }
+    if (file.isDirectory()){
+      for (f: file.listFiles()){
+        if (f.name.endsWith(".pea")){
+          pages[basename(f)] = readDynamicPage(f, null, reloadUpdatedScript)
+        }
+      }
+    } else if (file.name.endsWith(".pea")) {
+      pages[basename(file)] = readDynamicPage(file, null, reloadUpdatedScript)
+    }
+  }
+  rs = rootScope()
+  rs["render"] = function render(name){
+     package(requestScope())
+     page = pages[name]
+     if (page == null) throw("Template not found: " + name)
+     run(page)
+  }
+}

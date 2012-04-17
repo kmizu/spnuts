@@ -1,0 +1,35 @@
+package("pnuts.util")
+
+rt = Runtime::getRuntime()
+
+function system (platform_command){
+  proc = rt.exec(platform_command)
+  a = fork(function() read(proc.getInputStream(), getContext().getWriter()))
+  b = fork(function() read(proc.getErrorStream(), getContext().getErrorWriter()))
+  r = proc.waitFor()
+  a.join()
+  b.join()
+  r
+}
+
+import("java.io.Reader")
+import("java.io.InputStream")
+
+function system (platform_command, input){
+   system(platform_command, input, getContext().getWriter())
+}
+
+function system (platform_command, input, output){
+  proc = rt.exec(platform_command)
+  if ((input instanceof InputStream) || (input instanceof Reader)){
+    out = proc.getOutputStream()
+    read(input, out)
+    out.close()
+  }
+  a = fork(function() read(proc.getInputStream(), output))
+  b = fork(function() read(proc.getErrorStream(), getContext().getErrorWriter()))
+  r = proc.waitFor()
+  a.join()
+  b.join()
+  r
+}

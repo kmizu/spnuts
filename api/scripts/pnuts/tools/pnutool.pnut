@@ -1,0 +1,367 @@
+package("pnuts.tools")
+
+use("pnuts.tools")
+
+import java.io.PrintStream
+import java.io.PrintWriter
+import java.io.FileReader
+import java.io.FileOutputStream
+import java.io.FileInputStream
+import java.io.BufferedOutputStream
+import java.io.File
+import java.net.URL
+import java.awt.Frame
+import java.awt.Font
+import java.awt.Label
+import java.awt.Cursor
+import java.awt.FlowLayout
+import java.awt.FileDialog
+import java.awt.Dialog
+import java.awt.TextArea
+import java.awt.TextField
+import java.awt.Color
+import org.pnuts.awt.TextAreaOutputStream
+import org.pnuts.awt.DialogOutputStream
+import pnuts.awt.PnutsLayout
+import pnuts.lang.Context
+import pnuts.lang.Pnuts
+import pnuts.lang.Runtime
+import pnuts.compiler.CompilerPnutsImpl
+
+getLineSeparator = function (ta){
+  ta.setText("\n")
+  ta.selectAll()
+  e = ta.getSelectionEnd()
+  sep = getProperty("line.separator")
+  if (e == 1){
+    ta.setText("")
+    return sep.substring(0, 1)
+  } else {
+    ta.setText("")
+    return sep
+  }
+}
+
+adjustLineSeparator = function (str, sep){
+  s = StringBuffer()
+  rest = str
+  while (rest != null && rest.length() > 0){
+    idx = rest.indexOf('\n')
+    if (idx < 0) {
+      s.append(rest)
+      break
+    }
+    s.append(rest[0..idx-1])
+    s.append(sep)
+    rest = rest[idx + 1..]
+  }
+  return s.toString()
+}
+
+function pnutool (context) {
+
+  fontsize = 12
+  fontstyle = Font::PLAIN
+  fontname = "sansserif"
+  directory = null
+
+  fr = frame("Pnuts")
+  ta1 = TextArea("", 10, 10, TextArea::SCROLLBARS_NONE)
+  ta2 = TextArea("", 10, 10, TextArea::SCROLLBARS_VERTICAL_ONLY)
+
+  ta1.setBackground(Color::white)
+  ta2.setBackground(Color::white)
+  ta2.setEditable(false)
+
+  layout(fr, [PnutsLayout, "halign=fill,valign=fill,expand=x",
+	ta1, [ta2, "expand=y"]])
+  lineSeparator = getLineSeparator(ta1)
+
+  context.setOutputStream(BufferedOutputStream(TextAreaOutputStream(ta2)))
+  output = context.getWriter()
+  context.setErrorStream(PrintWriter(DialogOutputStream(fr), true))
+
+  function open (e) {
+    fd = FileDialog(fr, "Open")
+    if (directory != null){
+      fd.setDirectory(directory)
+    }
+    fd.show()
+    str = fd.getFile()
+    if (str == null){
+       return
+    }
+    directory = fd.getDirectory()
+    path = directory + getProperty("file.separator") + str
+    file = File(path)
+    if (file.exists()){
+      ta1.setText("")
+      read(FileReader(path), PrintWriter(TextAreaOutputStream(ta1)))
+      ta1.setCaretPosition(0)
+    }
+  }
+
+  function openURL(e){
+    d = Dialog(fr, "open URL", true)
+    d.setLayout(FlowLayout())
+    tf = TextField(30)
+    d.add(Label("URL: "))
+    d.add(tf)
+    d.pack()
+    center = centerPosition(fr, d)
+    d.setLocation(center)
+    bind(d, "windowClosing", function (e) d.dispose())
+    bind(tf, "actionPerformed", function (e) {
+      input = tf.getText()
+      d.dispose()
+      if (input.length() == 0) return
+      in = URL(input).openStream()
+      if (in != null){
+        ta1.setText("")
+        read(in, PrintStream(BufferedOutputStream(TextAreaOutputStream(ta1))))
+        ta1.setCaretPosition(0)
+      }
+      in.close()
+    })
+    d.show()
+    tf.requestFocus()
+  }
+
+  function save (e) {
+    fd = FileDialog(fr, "Save")
+    if (directory != null){
+      fd.setDirectory(directory)
+    }
+    fd.show()
+    file = fd.getFile()
+    directory = fd.getDirectory()
+    if (file == null) return
+    path = directory + getProperty("file.separator") + file
+    out = FileOutputStream(path)
+    str = ta1.getText()
+    b = str.getBytes()
+    out.write(b, 0, b.length)
+    out.close()
+  }
+
+  function currentLine (ta){
+     pos = ta.getCaretPosition()
+     txt = ta.getText()
+     len = txt.length()
+     if (len < pos) pos = len
+     if (pos < 1) return ""
+     t = txt.substring(0, pos - 1)
+     sep = lineSeparator
+     idx2 = txt.indexOf(sep, pos - 1)
+     idx1 = t.lastIndexOf(sep) + 1
+     if (idx1 < 0) idx1 = 0
+     if (idx2 < 0) idx2 = txt.length()
+     txt.substring(idx1, idx2)
+  }
+
+  function waitCursor(){
+     wait = Cursor::getPredefinedCursor(Cursor::WAIT_CURSOR)
+     ta1.setCursor(wait)
+     ta2.setCursor(wait)
+     fr.setCursor(wait) 
+  }
+
+  function defaultCursor(){
+     text = Cursor::getPredefinedCursor(Cursor::TEXT_CURSOR)
+     dft = Cursor::getPredefinedCursor(Cursor::DEFAULT_CURSOR)
+     ta1.setCursor(text)
+     ta2.setCursor(text)
+     fr.setCursor(dft) 
+  }
+
+  function evaluate(e){
+    waitCursor()
+    txt = ta1.getText()
+    txt = adjustLineSeparator(txt, lineSeparator)
+    idx1 = ta1.getSelectionStart()
+    idx2 = ta1.getSelectionEnd()
+    len = txt.length()
+    if (len < idx1) idx1 = len
+    if (len < idx2) idx2 = len
+
+    cmd = txt.substring(idx1,idx2)
+  			
+    if (cmd == null || cmd.length() < 1){
+       cmd = currentLine(ta1)
+    }
+    try {
+       l = Pnuts::eval(cmd, context.clone())
+       output.println(format(l))
+       output.flush()
+       defaultCursor()
+    } catch(Throwable e){
+       error(e, context)
+       defaultCursor()
+    }
+  }
+
+  function close(e){
+    fr.dispose()
+  }
+
+  function selectAll(e){
+    ta1.selectAll()
+  }
+
+  function clear1(e)  ta1.setText("")
+  function clear2(e)  ta2.setText("")
+
+  function myload(e){
+    fd = FileDialog(fr, "Load")
+    if (directory != null){
+      fd.setDirectory(directory)
+    }
+    fd.show()
+    str = fd.getFile()
+    if (str == null){
+       return
+    }
+    directory = fd.getDirectory()
+    path = directory + getProperty("file.separator") + str
+    file = File(path)
+    if (file.exists()){
+      load(FileInputStream(path))
+    }
+  }
+
+  function setfont (e) {
+     waitCursor()
+     item = e.getSource()
+     label = item.getLabel()
+     fontname = label
+     font = Font(fontname, fontstyle, fontsize)
+     ta1.setFont(font)
+     ta2.setFont(font)
+     defaultCursor()
+  }
+
+  function setstyle (e){
+     waitCursor()
+     item = e.getSource()
+     label = item.getLabel().toUpperCase()
+     fontstyle = eval("Font::" + label)
+     font = Font(fontname, fontstyle, fontsize)
+     ta1.setFont(font)
+     ta2.setFont(font)
+     defaultCursor()
+  }
+
+  function setfontsize (e) {
+    waitCursor()
+    item = e.getSource()
+    label = item.getLabel()
+    fontsize = Integer::parseInt(label)
+    font = Font(fontname, fontstyle, fontsize)
+    ta1.setFont(font)
+    ta2.setFont(font)
+    defaultCursor()
+  }
+
+  function isApplet(){
+    return getPackage("").pnuts_applet != null
+  }
+
+  function dispose (e){
+     fr.dispose()
+  }
+
+  function exitPnutool(e){
+     exit(0)
+  }
+
+  bundle = "pnuts/tools/pnutool"
+
+  function split (e){
+    mbar = fr.getMenuBar()
+    if (ta2.isVisible()){
+      mitem = getMenuItem(mbar, bundle, ["edit", "hide.output"])
+      mitem.setLabel(formatMessage(bundle, "show.output"))
+      layout(fr, [PnutsLayout, "halign=fill,valign=fill,expand=xy", ta1])
+      ta2.setVisible(false)
+      ta1.requestFocus()
+    } else {
+      mitem = getMenuItem(mbar, bundle, ["edit", "show.output"])
+      mitem.setLabel(formatMessage(bundle, "hide.output"))
+      layout(fr, [PnutsLayout, "halign=fill,valign=fill,expand=x",
+	ta1, [ta2, "expand=y"]])
+      ta2.setVisible(true)
+      ta1.requestFocus()
+    }
+  }
+
+  mbar = menubar(fr, bundle,
+	 [["file",
+            ["open", open, 'O'],
+	    ["open.url", openURL, 'U'],
+	    ["save", save, 'S'],
+            ["load", myload, 'W'],
+            ["eval", evaluate, 'J'],
+            ["close", close, 'Q']],
+ 	  ["edit|",
+	    ["font",
+	      ["serif", setfont],
+	      ["sansserif", setfont],
+	      ["dialog", setfont],
+	      ["monospaced", setfont]],
+	    ["fontstyle",
+	      ["Plain", setstyle],
+	      ["Bold", setstyle],
+	      ["Italic", setstyle]],
+	    ["fontsize",
+	      ["9", setfontsize],
+	      ["10", setfontsize],
+	      ["12", setfontsize],
+	      ["16", setfontsize],
+	      ["18", setfontsize],
+	      ["24", setfontsize]],
+	    ["-", function (e) null],
+	      ["select.all", selectAll, 'A'],
+	      ["clear.workspace", clear1, 'K'],
+	      ["clear.output", clear2, 'L'],
+	      ["hide.output", split, 'E'] ]])
+
+  function setHelpMenu(){
+    try {
+      mbar.setHelpMenu(menu(
+        bundle,
+	["help",
+	 ["users.guide",
+	   function (e){
+	      applet = getPackage("").pnuts_applet
+	      if (applet == null) return
+	      ctx = applet.getAppletContext()
+	      ctx.showDocument(URL(applet.getDocumentBase(),
+                                   formatMessage(bundle, "guide.url")))
+           }
+	]]))
+    } catch (Error e){
+       println(e)
+    }
+  }
+  setHelpMenu()
+
+  fr.setSize(550, 500)
+
+  if (isApplet()){
+    getMenuItem(mbar, bundle, ["file", "open"]).setEnabled(false)
+    getMenuItem(mbar, bundle, ["file", "save"]).setEnabled(false)
+    getMenuItem(mbar, bundle, ["file", "load"]).setEnabled(false)
+  }
+
+  fr.show()
+
+  home = getProperty("user.home")
+  init = File(home, ".pnuts/init.pnut")
+  if (init.exists()) Pnuts::load(Runtime.fileToURL(init), context)
+
+  fr
+}
+
+function pnutool() {
+   pnutool(getContext().clone())
+}

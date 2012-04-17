@@ -1,0 +1,7 @@
+// These functions are deprecated and should be replaced by the getSession() function
+
+package("pnuts.servlet")
+
+function session() error("not supported any more")
+function session(key) getSession().get(key, getContext())
+function session(key, value) getSession().set(key, value, getContext())

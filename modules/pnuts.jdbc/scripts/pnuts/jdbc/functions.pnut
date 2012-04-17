@@ -1,0 +1,351 @@
+package("pnuts.jdbc")
+
+import("org.pnuts.jdbc.ColumnMap")
+import("java.sql.ResultSet")
+
+function showResult(result){
+  meta = result.getMetaData()
+  cols = meta.getColumnCount()
+
+  i = 1
+  buf = StringBuffer()
+  while (i <= cols){
+    if (i > 1) {
+        buf.append(',')
+    } 
+    typeName = meta.getColumnTypeName(i)
+    p = meta.getPrecision(i)
+    if (p == 0){
+      t = typeName
+    } else {
+      t = typeName + "." + p
+    }
+    buf.append(meta.getColumnLabel(i) + "(" + t + ")")
+    i = i + 1
+  }
+  println(buf)
+  println("-------------------------------------")
+  flush()
+
+  while (result.next()) {
+     i = 1
+     buf.setLength(0)
+     while (i <= cols){
+        if (i > 1) buf.append(',')
+        s = result.getString(i)
+        if (s == null){
+           buf.append("null")
+        } else {
+           buf.append(s)
+        }
+        i = i + 1
+     }
+     println(buf);
+     flush()
+  }
+}
+
+function ignoreResult(result){
+  while (result.next()) { }
+}
+
+import("pnuts.jdbc.DriverManager")
+import("javax.sql.DataSource")
+import("java.sql.Connection")
+import("javax.naming.InitialContext")
+
+function openJDBC(s){
+   if (s instanceof String){
+      if (!s.startsWith("java:comp")) s = "java:comp/env/" + s
+      s = InitialContext().lookup(s)
+   }
+   if (s instanceof DataSource){
+      conn = s.connection
+   } else if (s instanceof Connection){
+      conn = s
+   } else {
+      throw(IllegalArgumentException(string(s)))
+   }
+   exports(conn, false, 2)
+}
+
+function openJDBC(driver, url){
+  openJDBC(driver, url, null)
+}
+
+import("java.util.Properties")
+
+function openJDBC(driver, url, user, pass){
+  cls = class(driver)
+  if (cls == null) {
+    throw("JDBC driver is not found")
+  }
+  cls()
+  conn = DriverManager::getConnection(url, user, pass)
+  exports(conn, true, 2)
+}
+
+function openJDBC(driver, url, properties){
+  cls = class(driver)
+  if (cls == null) {
+    throw("JDBC driver is not found")
+  }
+  cls()
+  if (properties == null){
+    conn = DriverManager::getConnection(url, Properties())
+  } else if (properties instanceof Properties){
+    conn = DriverManager::getConnection(url, properties)
+  } else {
+    properties = loadProperties(openByteArray(properties.getBytes()))
+    conn = DriverManager::getConnection(url, properties)
+  }
+  exports(conn, true, 2)
+}
+
+function exports(conn, needToClose, cacheSize) {
+  e =  _exports(conn)
+  e.setStatementCacheSize(cacheSize)
+  if (needToClose){
+    setFinalizer(e, function () {
+      conn.close()
+      if (stmt_cache != null){
+         for (stmt: stmt_cache.values()) stmt.close()
+      }
+    })
+  }
+  e
+}
+
+function _exports(conn) {
+  stmt_cache = null
+  function createStatementCache(cacheSize){
+    LRUcache(cacheSize,
+             function (stmt) conn.prepareStatement(stmt),
+             function (oldStmt) oldStmt.close())
+  }
+  function getPreparedStatement(query) {
+      if (stmt_cache != null){
+        stmt_cache[query]
+      } else {
+        conn.prepareStatement(stmt)
+      }
+  }
+  function setObject(stmt, idx, arg){
+    if (arg instanceof java.util.Date){
+      stmt.setObject(idx, new java.sql.Timestamp(arg.time))
+    } else {
+      stmt.setObject(idx, arg)
+    }
+  }
+  function executeUpdate(conn, query) executeUpdate(conn, query, null)
+  function executeUpdate(conn, query, params){
+    if (query instanceof java.sql.PreparedStatement){
+      stmt = query
+      toclose = null
+    } else {
+      toclose = stmt = getPreparedStatement(query)
+    }
+    if (params != null){
+       i = 1
+       for (p:params) setObject(stmt, i++, p)
+    }
+    try {
+      stmt.executeUpdate()
+    } finally {
+      if (stmt_cache == null && toclose != null) toclose.close()
+    }
+  }
+  function executeQuery(conn, query, func) executeQuery(conn, query, null, func)
+  function executeQuery(conn, query, params, func){
+    if (query instanceof java.sql.PreparedStatement){
+      stmt = query
+      toclose = null
+    } else {
+      toclose = stmt = getPreparedStatement(query)
+    }
+    if (params != null){
+      i = 1
+      for (p:params) setObject(stmt, i++, p)
+    }
+    last = null
+    if (stmt.execute()){
+      try {
+        while (true){
+          result = stmt.resultSet
+          try {
+            last = func(result)
+            if (!stmt.moreResults && (stmt.updateCount == -1)) break
+          } finally { result.close() }
+        }
+      } finally {
+        if (stmt_cache == null && toclose != null) toclose.close()
+      }
+    }
+    last
+  }
+
+  function executeFirstQuery(conn, query, params) {
+    if (query instanceof java.sql.PreparedStatement){
+      stmt = query
+      toclose = null
+    } else {
+      toclose = stmt = getPreparedStatement(query)
+    }
+    try {
+      if (params != null){
+        i = 1
+        for (p:params) setObject(stmt, i++, p)
+      }
+      if (stmt.execute()){
+          resultSet = stmt.resultSet
+          cm = ColumnMap(resultSet)
+          try {
+            while (cm.next()) yield map(cm)
+          } finally {
+            resultSet.close()
+          }
+      }
+    } catch (Exception e){
+      System.err.println("query="+query+", params="+params)
+      throw e
+    } finally {
+      if (stmt_cache == null && toclose != null) toclose.close()
+    }
+  }
+  function _mapToInsertStatement(table, m){
+    print("insert into ", table,  " (")
+    mapFunction(function (k,v) string(k), m, x=list())
+    print(join(", ", x), ") values (")
+    y = Object[size(m)]
+    y[0..] = "?"
+    print(join(", ", y), ")")
+  }
+
+  mapToInsertStatement = textGrab(_mapToInsertStatement)
+
+  function _mapToUpdateStatement(table, keys, values){
+    print("update ", table,  " set ")
+    mapFunction(function (k,v) k + "=?", values, w=list())
+    print(join(",", w))
+    print(" where ")
+    mapFunction(function (k,v) k + "=?", keys, w=list())
+    print(join(" and ", w))
+  }
+  mapToUpdateStatement = textGrab(_mapToUpdateStatement)
+
+  function _mapToSelectStatement(table, m){
+    print("select * from ", table,  " where ")
+    mapFunction(function (k,v) k + "=?", m, d=list())
+    print(join(" and ", d))
+  }
+  mapToSelectStatement = textGrab(_mapToSelectStatement)
+
+  $(
+  function getAutoCommit() conn.autoCommit,
+  function setAutoCommit(b) conn.setAutoCommit(b),
+  function setStatementCacheSize(n){
+      if (n == 0) {
+        stmt_cache = null
+      } else {
+        stmt_cache = createStatementCache(n)
+      }
+  },
+  function commit() conn.commit(),
+  function rollback() conn.rollback(),
+  function session(){
+    in = reader(System::in)
+    out = System::out
+    out.print("% ")
+    out.flush()
+    while ((query = in.readLine()) != null){
+        if (query == "exit") {
+          break
+        }
+        if (query.length() > 1){
+          try  {
+            executeQuery(conn, query, showResult)
+          } catch (Exception e){
+            error(e)
+          }
+        }
+        out.print("% ")
+        out.flush()
+      }
+  },
+  function load(input) load(input, false),
+  function load(input, verbose){
+     in = reader(input)
+     handler = (if (verbose) showResult else ignoreResult)
+     query = readText(in)
+     if (query.length() > 1){
+        executeQuery(conn, query, handler)
+     }
+  },
+  function execute(query) execute(query, showResult),
+  function execute(query, arg){
+      if (isFunction(arg)){
+        executeQuery(conn, query, arg)
+      } else {
+        executeUpdate(conn, query, arg)
+      }
+  },
+  function execute(query, arg, callback){
+     executeQuery(conn, query, arg, callback)
+  },
+  function getConnection() conn,
+  function query(expr) {
+    executeFirstQuery(conn, expr, null)
+  },
+  function query(expr, params) {
+    executeFirstQuery(conn, expr, params)
+  },
+  function insert(table, aMap){
+    values = list()
+    for (p:aMap)  values.add(p.value)
+    executeUpdate(conn, mapToInsertStatement(table, aMap), values)
+  },
+  function update(table, keys, values){
+    arguments = list()
+    for (p:values)  arguments.add(p.value)
+    for (p:keys)  arguments.add(p.value)
+    executeUpdate(conn, mapToUpdateStatement(table, keys, values), arguments)
+  },
+  function updateOrInsert(table, keys, values){
+    arguments = list()
+    for (p : keys)  arguments.add(p.value)
+    count = 0
+    st = conn.prepareStatement(mapToSelectStatement(table, keys),
+                               ResultSet.TYPE_SCROLL_SENSITIVE,
+                               ResultSet.CONCUR_UPDATABLE)
+    try {
+      i = 1
+      for (e : keys) setObject(st, i++, e.value)
+      count = 0
+      if (st.execute()){
+          resultSet = st.resultSet
+          cm = ColumnMap(resultSet)
+          try {
+            while (cm.next()){
+	       for (v : values) cm.put(v.key, v.value)
+              ++count
+            }
+          } finally {
+            resultSet.close()
+          }
+      }
+     } finally {
+       st.close()
+     }
+     if (count == 0){
+        m = map()
+        m.putAll(keys)
+        m.putAll(values)
+        insert(table, m)
+     }
+     null
+  },
+  function close(){
+    conn.close()
+  }
+ )
+}

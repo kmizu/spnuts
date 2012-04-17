@@ -1,0 +1,300 @@
+package("pnuts.awt")
+
+import("java.awt.*")
+import("java.awt.image.*")
+import("java.io.*")
+import("pnuts.awt.ImageUtil")
+import("java.net.*")
+
+EXPORTS.TYPE_CUSTOM = 0
+EXPORTS.TYPE_INT_RGB = 1
+EXPORTS.TYPE_INT_ARGB = 2
+EXPORTS.TYPE_INT_ARGB_PRE = 3
+EXPORTS.TYPE_INT_BGR = 4
+EXPORTS.TYPE_3BYTE_BGR = 5
+EXPORTS.TYPE_4BYTE_ABGR = 6
+EXPORTS.TYPE_4BYTE_ABGR_PRE = 7
+EXPORTS.TYPE_565_RGB = 8
+EXPORTS.TYPE_USHORT_555_RGB = 9
+EXPORTS.TYPE_BYTE_GRAY = 10
+EXPORTS.TYPE_USHORT_GRAY = 11
+EXPORTS.TYPE_BYTE_BINARY = 12
+EXPORTS.TYPE_BYTE_INDEXED = 13
+
+function makeImage(width, height, handler){
+  makeImage(width, height, handler, TYPE_INT_RGB)
+}
+
+function makeImage(width, height, handler, imageType){
+  if (imageType instanceof String){
+     imageType = image_type_map.get(imageType)
+  }
+  if (defined("BufferedImage")){
+    im = BufferedImage(width, height, imageType) 
+  } else {
+    im = w.createImage(width, height)
+    f.dispose()
+  }
+  g = im.getGraphics()
+  if (handler != null) handler(g)
+  g.dispose()
+  im
+}
+
+function makeImage(image, handler){
+  g = image.getGraphics()
+  if (handler != null) handler(g)
+  g.dispose()
+  image
+}
+
+function getImage(urlOrFilename){
+  Toolkit::getDefaultToolkit().getImage(urlOrFilename)
+}
+
+function resizeImage(image, width, height){
+  image.getScaledInstance(width, height, 1)
+}
+
+import("javax.swing.*")
+
+function showImage(im) showImage(im, false)
+
+function showImage(im, resize){
+  f = JFrame()
+  f.setDefaultCloseOperation(JFrame::DISPOSE_ON_CLOSE)
+  cp = f.getContentPane()
+  cp.setLayout(BorderLayout())
+  if (im instanceof Image){
+    icon = ImageIcon(im, "")
+  } else {
+    icon = ImageIcon(readImage(im))
+  }
+  label = JLabel(icon)
+  bind(label, "mousePressed", function (e) println("pressed " + e.getX() + "," + e.getY()))
+  bind(label, "mouseReleased", function (e) println("released " + e.getX() + "," + e.getY()))
+  cp.add(label, BorderLayout::CENTER)
+  screensize = Toolkit::getDefaultToolkit().getScreenSize()
+
+  framesize = f.getPreferredSize()
+  if (screensize.getWidth() < framesize.getWidth() ||
+      screensize.getHeight() < framesize.getHeight()){
+     cp.removeAll()
+     if (resize){
+       cp.add(label)
+     } else {
+       cp.add(JScrollPane(label))
+     }
+     framesize = screensize
+  }
+  if (resize){
+    bind(f, "componentResized", function (e) {
+      cp = f.getContentPane()
+      lw = cp.getWidth()
+      lh = cp.getHeight()
+      iw = im.getWidth()
+      ih = im.getHeight()
+      a = lh * iw
+      b = lw * ih
+      if (a > b){
+        w = lw
+        h = b / iw
+      } else {
+        h = lh
+        w = a / ih
+      }
+      im2 = resizeImage(im, w, h)
+      label.setIcon(ImageIcon(im2))
+    })
+  }
+  f.setSize(framesize)
+  f.validate()
+  f.show()
+}
+
+function filterImage(image, filter){
+  tk = Toolkit::getDefaultToolkit()
+  tk.createImage(FilteredImageSource(image.getSource(), filter))
+}
+
+function cropImage(image, x, y, w, h){
+  if (image instanceof BufferedImage){
+    image.getSubimage(w, y, w, h)
+  } else {
+    filterImage(image, CropImageFilter(x, y, w, h))
+  }
+}
+
+import("javax.imageio.*")
+import("javax.imageio.stream.*")
+
+if (defined("ImageIO")){
+
+ getSuffix = function (str){
+    idx = str.toString().lastIndexOf('.')
+    if (idx == -1) "" else str[idx+1..]
+ }
+
+ function writeImage(image, output){
+   if (!(image instanceof RenderedImage)){
+      image = ImageUtil::makeBufferedImage(image)
+   }
+   if (output instanceof String){
+      suffix = getSuffix(output)
+      output = getFile(output)
+   } else if (output instanceof File){
+      suffix = getSuffix(output.getPath())
+   } else {
+     ERROR("output.mustBeStringOrFile")
+   }
+   imageWriter = null
+   foreach i (ImageIO::getImageWritersBySuffix(suffix)){
+     imageWriter = i
+     break
+   }
+   if (imageWriter != null){
+     if (output instanceof OutputStream){
+       out = MemoryCacheImageOutputStream(output)
+     } else {   
+       out = FileImageOutputStream(output)
+     }
+     imageWriter.setOutput(out)
+     imageWriter.write(image)
+     imageWriter.dispose()
+     out.close()
+   } else {
+     throw("not supported image format")
+   }
+ }
+
+ function writeImage(image, mimeType, output){
+   if (!(image instanceof RenderedImage)){
+      image = ImageUtil::makeBufferedImage(image)
+   }
+   imageWriter = null
+   foreach i (ImageIO::getImageWritersByMIMEType(mimeType)){
+     imageWriter = i
+     break
+   }
+   if (imageWriter != null){
+     if (output instanceof OutputStream){
+       out = MemoryCacheImageOutputStream(output)
+     } else {
+       out = FileImageOutputStream(getFile(output))
+     }
+     imageWriter.setOutput(out)
+     imageWriter.write(image)
+     imageWriter.dispose()
+     out.close()
+   } else {
+     throw("not supported image format")
+   }
+ }
+
+ function readImage(in, mimeType){
+   if (!(in instanceof ImageInputStream)){
+     if (!(in instanceof InputStream)) in = open(in)
+     in = ImageIO::createImageInputStream(in)
+   }
+   im = null
+   foreach i (ImageIO::getImageReadersByMIMEType(mimeType)){
+      i.setInput(in)
+//      im = i.readAsRenderedImage(0, null)
+      im = i.read(0)
+      i.dispose()
+   }
+   in.close()
+   im
+ }
+
+ function readImage(in){
+   if (!(in instanceof ImageInputStream)){
+     if (!(in instanceof InputStream)) in = open(in)
+     in = ImageIO::createImageInputStream(in)
+   }
+   im = null
+   foreach i (ImageIO::getImageReaders(in)){
+      try {
+        i.setInput(in)
+        if (i != null){
+//          im = i.readAsRenderedImage(0, null)
+          im = i.read(0)
+        }
+        i.dispose()
+        if (im != null) {
+          return im
+        }
+     } catch (Exception e){}
+   }
+   in.close()
+   im
+ }
+}
+
+import("java.awt.geom.*")
+import("java.awt.color.*")
+
+if (defined("RenderingHints") && defined("ColorSpace")){
+
+  KEY_INTERPOLATION = RenderingHints::KEY_INTERPOLATION
+  VALUE_INTERPOLATION_BILINEAR = RenderingHints::VALUE_INTERPOLATION_BILINEAR
+  CS_GRAY = ColorSpace::CS_GRAY
+
+  function shearImage(im, sx, sy){
+    t = AffineTransform()
+    t.setToShear(sx, sy)
+    rh = RenderingHints(KEY_INTERPOLATION, VALUE_INTERPOLATION_BILINEAR)
+    op = AffineTransformOp(t, rh)
+    op.filter(im, null)
+  }
+
+  function rotateImage(im, d){
+    t = AffineTransform()
+    t.setToRotation(d)
+    rh = RenderingHints(KEY_INTERPOLATION, VALUE_INTERPOLATION_BILINEAR)
+    op = AffineTransformOp(t, rh)
+    op.filter(im, null)
+  }
+
+  function rotateImage(im, d, x, y){
+    t = AffineTransform()
+    t.setToRotation(d, x, y)
+    rh = RenderingHints(KEY_INTERPOLATION, VALUE_INTERPOLATION_BILINEAR)
+    op = AffineTransformOp(t, rh)
+    op.filter(im, null)
+  }
+
+  function flipImage(im, horizontal, vertical){
+    if (horizontal){
+      sx = -1 
+      tx = -im.getWidth()
+    } else {
+      sx = 1
+      tx = 0
+    }
+    if (vertical){
+      sy = -1 
+      ty = -im.getHeight()
+    } else {
+      sy = 1
+      ty = 0
+    }
+    t = AffineTransform::getScaleInstance(sx, sy)
+    t.translate(tx, ty)
+    rh = RenderingHints(KEY_INTERPOLATION, VALUE_INTERPOLATION_BILINEAR)
+    op = AffineTransformOp(t, rh)
+    op.filter(im, null)
+  }
+
+  function scaleImage(im, x, y){
+    t = AffineTransform::getScaleInstance(x, y)
+    rh = RenderingHints(KEY_INTERPOLATION, VALUE_INTERPOLATION_BILINEAR)
+    op = AffineTransformOp(t, rh)
+    op.filter(im, null)
+  }
+
+  function grayImage(im){
+    op = ColorConvertOp(ColorSpace::getInstance(CS_GRAY), null)
+    op.filter(im, null)
+  }
+}

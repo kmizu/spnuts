@@ -1,0 +1,7 @@
+package("pnuts.lib")
+
+import("pnuts.lang.Package")
+import("pnuts.lib.ScriptPackage$Function")
+
+createPackage = ScriptPackage$Function("createPackage", Package(null, null))
+$ = ScriptPackage$Function()

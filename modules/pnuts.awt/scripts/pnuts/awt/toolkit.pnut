@@ -1,0 +1,5 @@
+package("pnuts.awt")
+
+import("java.awt.Toolkit")
+
+function getToolkit() Toolkit::getDefaultToolkit()

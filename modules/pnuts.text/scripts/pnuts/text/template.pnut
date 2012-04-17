@@ -1,0 +1,15 @@
+package("pnuts.text")
+
+import("pnuts.text.Template")
+
+function template(text, pattern){
+  slist = list()
+  elist = list()
+  klist = list()
+  matchAll(pattern, text, function(m) {
+    slist.add(getMatchStart(0))
+    elist.add(getMatchEnd(0))
+    klist.add(getMatch(1))
+  })
+  Template(string(text), slist.toArray(), elist.toArray(), klist.toArray())
+}

@@ -1,0 +1,64 @@
+package("pnuts.util")
+
+import("java.util.Date")
+
+function ls () ls(".")
+
+function ls (c){
+  sep = getProperty("file.separator")
+  sp = char[60]
+  sp[0..] = ' '
+  dt = Date()
+
+  function line(g){
+    if (g.directory){
+       sp[0] = 'd'
+    } else {
+       sp[0] = '-'
+    }
+    if (g.canRead()){
+       sp[1] = 'r'
+    } else {
+       sp[1] = '-'
+    }
+    if (g.canWrite()){
+       sp[2] = 'w'
+    } else {
+       sp[2] = '-'
+    }
+    l = string(g.length())
+    sp[3..12] = ' '
+    sp[(13 - size(l))..12] = l
+
+    dt.setTime(g.lastModified())
+
+    str = string(dt)
+    sp[15..] = str
+    write(sp, 0, 17 + size(str))
+
+    println(g.name)
+  }
+  
+  args = shellExpand(c)
+
+  foreach f (args){
+    if (!exists(f)){
+       continue
+    }
+    f = getFile(f)
+    if (f.file){
+       line(f)
+    } else {
+       if (args.length > 1){
+          println(f + ":\n")
+       }
+       foreach i (f.list()){
+          path = getFile(f, i).path
+          if (path.endsWith(sep)){
+            path = path[0..string(path) - 2]
+          }
+          line(getFile(path))
+       }
+    }
+  }
+}

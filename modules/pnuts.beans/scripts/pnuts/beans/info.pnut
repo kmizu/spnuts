@@ -1,0 +1,52 @@
+package("pnuts.beans")
+
+import("java.beans.Introspector")
+import("pnuts.lang.Package")
+import("java.util.Map")
+
+mapFunction = function (func, array){
+   a = Object[array.length]
+   for (i = 0; i < a.length; ++i){
+      a[i] = func(array[i])
+   }
+   a
+}
+
+function properties(clazz){
+   mapFunction(
+      function (x) x.getName(),
+      Introspector::getBeanInfo(clazz).getPropertyDescriptors()
+   )
+}
+
+function events(clazz){
+   mapFunction(
+    function (x) x.getName(),
+    Introspector::getBeanInfo(clazz).getEventSetDescriptors()
+   )       
+}
+
+function methods(clazz){
+   mapFunction(
+     function (x) x.getName(),
+     Introspector::getBeanInfo(clazz).getMethodDescriptors()
+   )
+}
+
+function listenerMethodNames (clazz, eventName){
+   foreach i (Introspector::getBeanInfo(clazz).getEventSetDescriptors()){
+     if (i.getName() == eventName){
+       return mapFunction(function (x) x.getName(), i.getListenerMethods())
+     }
+   }
+   null
+}
+
+function listenerType (clazz, eventName){
+   foreach i (Introspector::getBeanInfo(clazz).getEventSetDescriptors()){
+     if (i.getName() == eventName){
+        return i.getListenerType()
+     }
+   }
+   null
+}

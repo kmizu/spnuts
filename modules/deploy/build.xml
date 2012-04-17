@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="Pnuts moudles" default="deploy" basedir=".">
+  <property file="../../deploy.properties"/>
+  <property file="build.properties"/>
+  <property name="dest" value="${deploy.dir}/modules"/>
+
+  <target name="deploy" depends="docs">
+     <jar destfile="properties.jar"
+          basedir="."
+          includes="module*properties"/>
+    <copy todir="${dest}">
+     <fileset dir=".">
+       <include name="module.xml"/>
+       <include name="properties.jar"/>
+       <include name="reference.xml"/>
+       <include name="reference_ja.xml"/>
+     </fileset>
+     <fileset dir="..">
+       <include name="pnuts-modules.jar"/>
+       <include name="stylesheet.css"/>
+     </fileset>
+    </copy>
+    <copy file="${dest}/module.xml" tofile="${dest}/pnuts-modules.xml"/>
+  </target>
+
+  <target name="docs">
+     <ant dir="../pnuts.lib" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.net" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.util" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.math" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.mail" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.security" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.io" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.beans" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.text" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.multithread" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.jdo" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.jdbc" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.servlet" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.nio" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.awt" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.xml" target="deploy" inheritAll="false"/>
+     <ant dir="../pnuts.regex" target="deploy" inheritAll="false"/>
+  </target>
+</project>

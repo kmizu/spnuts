@@ -1,0 +1,51 @@
+package("pnuts.security")
+
+import java.security.*
+import pnuts.security.*
+
+function permissions(perms){
+  if (perms instanceof Class){
+    Policy.getPolicy().getPermissions(perms.getProtectionDomain())
+  } else if (perms instanceof java.security.CodeSource){
+    Policy.getPolicy().getPermissions(perms)
+  } else if (perms instanceof java.net.URL){
+    Policy.getPolicy().getPermissions(CodeSource(perms, null))
+  } else if (iterable(perms)){
+    p = Permissions()
+    for (i : perms) {
+      for (j: permissions(i).elements()){
+        p.add(j)
+      }
+    }
+    p
+  } else {
+    if (perms == null){
+       (class pnuts.lang.Pnuts).protectionDomain.permissions
+    } else if (perms instanceof PermissionCollection){
+       perms
+    } else if (perms instanceof Permission){
+       p = Permissions()
+       p.add(perms)
+       p
+    } else {
+       throw "illegal argument :" + perms
+    }
+  }
+}
+
+function permissions(permitted, prohibited){
+  FilterPermissions(permissions(permitted), permissions(prohibited))
+}
+
+function secureFunc(func, pp){
+   if (System.getSecurityManager() == null) System.setSecurityManager(SecurityManager())
+   domain = (class pnuts.lang.Pnuts).protectionDomain
+   d = ProtectionDomain(domain.codeSource, pp)
+   cc = AccessControlContext([d])
+   function (args[]){
+       AccessController.doPrivileged(new PrivilegedAction(){
+         run(){
+            call(func, args)
+         }}, cc)
+   }
+}

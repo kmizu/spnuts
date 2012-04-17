@@ -1,0 +1,1580 @@
+/*
+ * Pnuts.jjt
+ *
+ * Copyright (c) 1997-2007 Sun Microsystems, Inc. All Rights Reserved.
+ *
+ * See the file "LICENSE.txt" for information on usage and redistribution
+ * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+ */
+
+options {
+    MULTI=false;
+    STATIC=false;
+    VISITOR=false;
+    JAVA_UNICODE_ESCAPE = false;
+    USER_CHAR_STREAM=false;
+    UNICODE_INPUT=true;
+}
+
+PARSER_BEGIN(PnutsParser)
+package pnuts.lang;
+import pnuts.lang.Runtime;
+public class PnutsParser {}
+PARSER_END(PnutsParser)
+TOKEN_MGR_DECLS:
+{
+        void startExpr(int state) {
+            SwitchTo(DEFAULT);
+        }       
+
+	void endExpr(){
+            SwitchTo(STRING);
+        }
+
+        void startStr() {
+            SwitchTo(STRING);
+        }
+
+        void endStr() {
+            SwitchTo(DEFAULT);
+        }
+
+}
+
+SKIP : /* WHITE SPACE */
+{
+  " "
+| "\t"
+| "\f"
+}
+
+SPECIAL_TOKEN : /* COMMENTS */
+{
+  <SINGLE_LINE_COMMENT: "//" (~["\n","\r"])*>
+| <MULTI_LINE_COMMENT: "/*" (~["*"])* "*" ("*" | (~["*","/"] (~["*"])* "*"))* "/">
+}
+
+<DEFAULT> TOKEN : /* EOL */
+{
+  <EOL: ("\r"|"\n"|"\r\n")>
+}
+
+<DEFAULT> TOKEN : /* RESERVED WORDS AND LITERALS */
+{
+  < TRUE: "true" >
+| < FALSE: "false" >
+| < NULL: "null" >
+| < IF: "if">
+| < ELSE: "else">
+| < WHILE: "while">
+| < DO: "do">
+| < FOREACH: "foreach">
+| < FOR: "for">
+| < SWITCH: "switch">
+| < CASE: "case">
+| < DFLT: "default">
+| < INSTANCEOF: "instanceof" >
+| < BREAK: "break">
+| < CONTINUE: "continue">
+| < RETURN: "return">
+| < YIELD: "yield">
+| < FUNCTION: "function">
+| < CLASS: "class">
+| < TRY: "try">
+| < CATCH: "catch">
+| < THROW: "throw">
+| < FINALLY: "finally">
+| < IMPORT: "import">
+| < PACKAGE: "package">
+| < STATIC: "static">
+| < NEW: "new">
+| < EXTENDS: "extends">
+| < IMPLEMENTS: "implements">
+}
+
+<DEFAULT> TOKEN : /* LITERALS */
+{
+  < INTEGER_LITERAL:
+        <DECIMAL_LITERAL>
+      | <HEX_LITERAL>
+      | <HEX_LITERAL2>
+  >
+|
+  < #DECIMAL_LITERAL: (["0"-"9"])+ (<LETTER>)* >
+|
+  < #HEX_LITERAL: "#" (["0"-"9","a"-"f","A"-"F"])+ >
+|
+  < #HEX_LITERAL2: "0" ("x" | "X") (["0"-"9","a"-"f","A"-"F"])+ (<LETTER>)* >
+|
+  < FLOATING_POINT_LITERAL:
+        (["0"-"9"])+ "." (["0"-"9"])+ (<EXPONENT>)? (<LETTER>)*
+      | "." (["0"-"9"])+ (<EXPONENT>)?  (<LETTER>)*
+      | (["0"-"9"])+ <EXPONENT> (<LETTER>)*
+  >
+|
+  < #EXPONENT: ["e","E"] (["+","-"])? (["0"-"9"])+ >
+|
+  < #UNICODE_ESCAPE: ("u" | "U")
+     ["0"-"9","a"-"f","A"-"F"]
+     ["0"-"9","a"-"f","A"-"F"]
+     ["0"-"9","a"-"f","A"-"F"]
+     ["0"-"9","a"-"f","A"-"F"]
+  >
+|
+  < CHARACTER_LITERAL:
+      "'"
+     ( ~["'","\\","\n","\r"]
+        |
+      "\\" ( ["n","t","b","r","f","0","\\","'","\""] | <UNICODE_ESCAPE> )
+      )
+      "'"
+  >
+|
+  < STRING_LITERAL:
+      "\""
+        (
+         (~["\"","\\"])
+          |
+         ("\\" ( "\\" | (~["\\","(",")"]) ) )
+        )*
+      "\""
+  >
+|
+  < STRING_LITERAL2: "`" ( ~["`"] )* "`" >
+|
+  <END_INLINE_EXPR: "\\)"> {endExpr();} 
+}
+
+<STRING> TOKEN:
+{
+    <START_INLINE_EXPR: "\\("> {startExpr(STRING);} |
+    <STRING_DOUBLEQUOTE: "\""> {endStr();} |   
+    <STRING_CONTENT:   
+      (   (~["\\", "\""]
+        | ("\\" ["\\", "\"", "n", "t", "b", "r", "f"]))
+      )+
+      >
+}
+
+
+<DEFAULT> TOKEN : /* IDENTIFIERS */
+{
+  < IDENTIFIER: <LETTER> (<LETTER>|<DIGIT>)* >
+|
+  < #LETTER:
+      [
+       "\u0024",
+       "\u0040"-"\u005a",
+       "\u005f",
+       "\u0061"-"\u007a",
+       "\u0080"-"\uffff"
+       ]
+  >
+|
+  < #DIGIT:
+      ["\u0030"-"\u0039"]
+  >
+}
+
+<DEFAULT> TOKEN : /* SEPARATORS */
+{
+  < LPAREN: "(" >
+| < RPAREN: ")" >
+| < LBRACE: "{" >
+| < RBRACE: "}" >
+| < LBRACKET: "[" >
+| < RBRACKET: "]" >
+| < SEMICOLON: ";" >
+| < COMMA: "," >
+| < DOT: "." >
+| < COLON: ":" >
+| < COLON2: "::" >
+| < DOT2: ".." >
+| < BACKQUOTE: "`" >
+| < DOUBLEQUOTE: "\"" > {startStr();}
+| < MAPENTRY: "=>" >
+| < CLOSURE: "->" >
+}
+
+
+<DEFAULT> TOKEN : /* OPERATORS */
+{
+  < ASSIGN: "=">
+| < TA: "*=">
+| < DA: "/=">
+| < MA: "%=">
+| < PA: "+=">
+| < SA: "-=">
+| < LA: "<<=">
+| < RA: ">>=">
+| < RAA: ">>>=">
+| < AA: "&=">
+| < EA: "^=">
+| < OA: "|=">
+| < GT: ">" >
+| < LT: "<" >
+| < BANG: "!" >
+| < HOOK: "?" >
+| < TILDE: "~" >
+| < EQ: "==" >
+| < LE: "<=" >
+| < GE: ">=" >
+| < NE: "!=" >
+| < SC_OR: "||" >
+| < SC_AND: "&&" >
+| < PLUS: "+" >
+| < MINUS: "-" >
+| < STAR: "*" >
+| < SLASH: "/" >
+| < BIT_AND: "&" >
+| < BIT_OR: "|" >
+| < XOR: "^" >
+| < REM: "%" >
+| < LSHIFT: "<<" >
+| < RSIGNEDSHIFT: ">>" >
+| < RUNSIGNEDSHIFT: ">>>" >
+}
+
+<DEFAULT> TOKEN : /* OPERATORS */
+{
+  < NO_MATCH: ~["."] >
+}
+
+<DEFAULT> TOKEN :
+{
+   < COMMAND_HEADER: "#!" (~["\n","\r"])* ("\r\n" | "\n" | "\r")>
+}
+
+void Eol()  #void :
+{}
+{
+  (<EOL>)*
+}
+
+SimpleNode StartSet(ParseEnvironment env) :
+{}
+{
+  [ <COMMAND_HEADER> ]
+   Eol() 
+  (
+    try {
+     (ExpressionList(env) (<EOL> [ ExpressionList(env)] )* <EOF>)
+    } catch (ParseException e){
+      if (env != null){
+         env.handleParseException(e);
+      }
+      Runtime.recoverParseError(this, PnutsParserConstants.EOL);
+      StartSet(env);
+      return jjtThis;
+    }
+   {
+    jjtThis.toplevel = 1;
+    return jjtThis;
+   } 
+   |
+   <EOF>
+   {
+    jjtThis.toplevel = -1;
+    return jjtThis;
+   }
+  )
+}
+
+SimpleNode Start(ParseEnvironment env) :
+{ Token t; }
+{
+  ExpressionList(env) ( t=<EOL> | t=<EOF> )
+  {
+     jjtThis.toplevel = 1;
+     return jjtThis;
+  }
+ | <EOL>
+  {
+     jjtThis.toplevel = 0;
+     return jjtThis;
+  }
+ | <EOF>
+  {
+     jjtThis.toplevel = -1;
+     return jjtThis;
+  }
+}
+
+void ExpressionList(ParseEnvironment env) :
+{}
+{
+  Expression(env) (";" [ Expression(env) ])*
+|
+  ";"
+}
+
+void MultiAssignLHS(ParseEnvironment env) :
+{}
+{
+   IdNode() "," IdNode() ("," IdNode())*
+}
+
+void Expression(ParseEnvironment env) #void :
+{}
+{
+    LOOKAHEAD(MultiAssignLHS(env) "=" ) MultiAssignLHS(env) "=" Eol() Expression(env) #Assignment(2)
+    |
+    LOOKAHEAD(LHS(env) ("="|"*="|"-="|"/="|"+="|"&="|"|="|"^="|"%="|"<<="|">>="|">>>=")) LHS(env) Assignment(env)
+    |
+    ConditionalExpression(env)
+    |
+    StatementExpression(env)
+}
+
+void ArgumentExpression(ParseEnvironment env) #void :
+{}
+{
+    LOOKAHEAD(LHS(env) ("="|"*="|"-="|"/="|"+="|"&="|"|="|"^="|"%="|"<<="|">>="|">>>=")) LHS(env) Assignment(env)
+    | 
+    ConditionalExpression(env)
+    |
+    StatementExpression(env)
+}
+
+void PrimaryExpression(ParseEnvironment env) #void :
+{}
+{
+  PrimaryPrefix(env) ( PrimarySuffix(env) )*
+}
+
+void LHS(ParseEnvironment env) #void :
+{}
+{
+  (IdNode() | PackageStatement(env)) ( PrimarySuffix(env) )*
+}
+
+void IdNode() #void :
+{ Token t; }
+{
+  "::"
+  t = <IDENTIFIER>
+  {
+    jjtThis.setToken(t);
+    jjtThis.str = t.image.intern();
+  } #Global
+ |
+  t=<IDENTIFIER>
+  {
+    jjtThis.setToken(t);
+    jjtThis.str = t.image.intern();
+  } #IdNode
+}
+
+void Closure(ParseEnvironment env) #FunctionStatement : 
+{}
+{
+   "{" ParamList(env) "->" Eol() Block0(env) #Block "}" 
+}
+
+void PrimaryPrefix(ParseEnvironment env) #void :
+{}
+{
+  Literal()
+|
+  StringExpression(env)
+|
+  LOOKAHEAD(ClassName() "{") BeanDef(env)
+|
+  IdNode()
+|
+  "["
+   try {
+     ListElements(env)  #ListElements "]"
+   } catch (ParseException e){
+     if (env != null){
+       env.handleParseException(e);
+     }
+     Runtime.recoverParseError(this, PnutsParserConstants.RBRACKET);
+   }
+|
+  LOOKAHEAD("{" ParamList(env) "->") Closure(env)
+|
+  LOOKAHEAD("{" Eol() MapElement(env)) MapElements(env)
+|
+  List(env)
+|
+  LOOKAHEAD(<CLASS> "(") ClassExpr(env)
+|
+  LOOKAHEAD(<CLASS> ClassName() Eol() ("{"|<IMPLEMENTS>|<EXTENDS>)) ClassDef(env)
+|
+  Class()
+
+|
+  New(env)
+|
+  PackageStatement(env)
+|
+  "(" 
+  try {
+    Eol() Expression(env) Eol() ")"
+  } catch (ParseException e){
+    if (env != null){
+      env.handleParseException(e);
+    }
+    Runtime.recoverParseError(this, PnutsParserConstants.RPAREN);
+  }
+}
+
+void List(ParseEnvironment env) #ListElements :
+{}
+{
+  "{"
+   try {
+     ListElements(env) "}"  
+   } catch (ParseException e){
+     if (env != null){
+       env.handleParseException(e);
+     }
+     Runtime.recoverParseError(this, PnutsParserConstants.RBRACKET);
+   }
+   {
+     jjtThis.str = "{";
+   }
+}
+
+void ListElements(ParseEnvironment env) #void :
+{}
+{
+  Eol() [ ArgumentExpression(env) Eol() ( "," Eol() ArgumentExpression(env) Eol() )* ]
+}
+
+void MapElements(ParseEnvironment env) :
+{}
+{
+  "{"
+  try {
+    Eol() 
+    MapElement(env) ("," Eol() MapElement(env))* Eol() "}"
+  } catch (ParseException e){
+    if (env != null){
+      env.handleParseException(e);
+    }
+    Runtime.recoverParseError(this, PnutsParserConstants.RBRACE);
+  }
+}
+
+void MapElement(ParseEnvironment env) :
+{}
+{
+   Expression(env) "=>" Expression(env)
+}
+
+void ClassExpr(ParseEnvironment env) :
+{ Token t; }
+{
+  t=<CLASS> "(" ArgumentExpression(env) ")"
+  {
+    jjtThis.setToken(t);
+  }
+}
+
+void Class() :
+{ Token t; }
+{
+  t=<CLASS>  ClassName() 
+  {
+    jjtThis.setToken(t);
+  }
+}
+
+SimpleNode ClassScript(ParseEnvironment env) :
+{}
+{
+  try {
+    [ PackageStatement(env) (";"| <EOL>) Eol()  ]
+    (Import(env) (";"| <EOL>) Eol())* ClassDef(env) 
+  } catch (ParseException e){
+    if (env != null){
+      env.handleParseException(e);
+    }     
+  }
+  {
+      return jjtThis;
+  }
+}
+
+
+void ClassDef(ParseEnvironment env) :
+{ }
+{
+  <CLASS> ClassName() Eol()
+    [ <EXTENDS> ClassName() Eol() ] #Extends
+    [ <IMPLEMENTS> ClassName() ("," Eol() ClassName())* Eol() ] #Implements
+    ClassDefBody(env)
+}
+
+void New(ParseEnvironment env) :
+{ Token t; }
+{
+  t=<NEW> ClassName() 
+  (
+   "(" 
+   try {
+      ListElements(env)  #ListElements
+     ")"
+   } catch (ParseException e){
+      if (env != null){
+        env.handleParseException(e);
+      }
+      Runtime.recoverParseError(this, PnutsParserConstants.RPAREN);
+   }
+    [ ClassDefBody(env) ] 
+    {
+      jjtThis.setToken(t);
+    }
+  |
+   ( LOOKAHEAD("[") ArraySuffix(env) )+
+   [ LOOKAHEAD("{") "{" 
+    try {
+      ListElements(env)  #ListElements
+      "}" #ArrayNode(2)
+    } catch (ParseException e2){
+       if (env != null){
+         env.handleParseException(e2);
+       }
+       Runtime.recoverParseError(this, PnutsParserConstants.RBRACE);
+    }
+   ]
+  )
+}
+
+void ClassDefBody(ParseEnvironment env) :
+{}
+{
+    "{" 
+    try {
+      Eol() ( 
+        LOOKAHEAD(Type(env) <IDENTIFIER> "(") MethodDef(env)
+        |
+        LOOKAHEAD(<IDENTIFIER> "(") MethodDef(env)
+        |
+        LOOKAHEAD(Type(env) <IDENTIFIER> (<EOL>|";"|"="|"}")) FieldDef(env)
+        |
+        LOOKAHEAD(<IDENTIFIER> "=") FieldDef2(env)
+       )* "}"
+    } catch (ParseException e){
+      if (env != null){
+        env.handleParseException(e);
+      }
+      Runtime.recoverParseError(this, PnutsParserConstants.RBRACE);
+    }
+}
+
+void FieldDef(ParseEnvironment env) :
+{ Token t; }
+{
+    Type(env) t=<IDENTIFIER> [  "=" (PrimaryExpression(env)) ]  (";" |<EOL>)*
+   {
+    jjtThis.setToken(t);
+    jjtThis.str = t.image.intern();
+    jjtThis.info = jjtThis.str;
+   }
+}
+
+void FieldDef2(ParseEnvironment env) #FieldDef : 
+{ Token t; }
+{
+    t=<IDENTIFIER> "=" PrimaryExpression(env)  (";" |<EOL>)*
+   {
+    jjtThis.setToken(t);
+    jjtThis.str = t.image.intern();
+   }
+}
+
+void MethodDef(ParseEnvironment env) :
+{ Token t; }
+{
+  [LOOKAHEAD(Type(env) <IDENTIFIER> "(") Type(env) ] t=<IDENTIFIER> TypedParamList(env) Eol() Block2(env) (";" |<EOL>)*
+  {
+    jjtThis.setToken(t);
+    jjtThis.str = t.image.intern();
+  }
+}
+
+void ArraySuffix(ParseEnvironment env) #void : 
+{}
+{
+  "[" Eol()
+   ( LOOKAHEAD("]") "]"
+     {
+     } #ArrayType(1)
+   |
+     Expression(env) Eol() "]" #IndexNode(2)
+   )
+}
+
+void ArrayType() #void :
+{}
+{
+  "[" "]" #ArrayType(1)
+}
+
+void Type(ParseEnvironment env) #void :
+{}
+{
+    ClassName() ( ArrayType() )*
+}
+
+void ClassName() :
+{}
+{
+  Package() (LOOKAHEAD("." <IDENTIFIER>) "." Package() )*
+}
+
+void Package() :
+{ Token t; }
+{
+  t=<IDENTIFIER>
+  {
+    jjtThis.str = t.image.intern();
+  }
+}
+
+void MethodNode(ParseEnvironment env) #void :
+{ Token t1; }
+{
+
+   "." ( t1=<IDENTIFIER> | t1=<YIELD> | t1=<FUNCTION>|t1=<FOREACH>)
+   "("
+   try {
+     ListElements(env)  #ListElements
+     ")"
+   } catch (ParseException e){
+     if (env != null){
+       env.handleParseException(e);
+     }
+     Runtime.recoverParseError(this, PnutsParserConstants.RPAREN);
+   }
+  {
+    jjtThis.str = t1.image.intern();
+    jjtThis.setToken(t1);
+  } #MethodNode(2)
+}
+
+void StaticMethodNode(ParseEnvironment env) #void :
+{ Token t1; }
+{
+
+  "::" (t1=<IDENTIFIER>|t1=<YIELD>|t1=<FUNCTION>|t1=<FOREACH>)
+  "("
+  try {
+    ListElements(env)  #ListElements
+    ")"
+  } catch (ParseException e){
+     if (env != null){
+       env.handleParseException(e);
+     }
+     Runtime.recoverParseError(this, PnutsParserConstants.RPAREN);
+  }
+  {
+    jjtThis.str = t1.image.intern();
+    jjtThis.setToken(t1);
+  }  #StaticMethodNode(2)
+}
+
+void MemberNode() #void :
+{ Token t; }
+{
+  "." 
+  ( t = <IDENTIFIER>
+  {
+    jjtThis.str = t.image.intern();
+    jjtThis.setToken(t);
+  } #MemberNode(1)
+  |
+   t = <CLASS>
+  {
+    jjtThis.str = t.image.intern();
+    jjtThis.setToken(t);
+  } #MemberNode(1)
+  )
+}
+
+void StaticMemberNode() #void :
+{ Token t; }
+{
+  "::" t=<IDENTIFIER>
+  {
+    jjtThis.str = t.image.intern();
+    jjtThis.setToken(t);
+  } #StaticMemberNode(1)
+}
+
+void ApplicationNode(ParseEnvironment env) #void :
+{ Token t1; }
+{
+  t1="("
+  try {
+    ListElements(env) #ListElements
+    ")"
+  } catch (ParseException e){
+    if (env != null){
+      env.handleParseException(e);
+    }
+    jjtree.pushNode(new SimpleNode(PnutsParserTreeConstants.JJTLISTELEMENTS));
+    Runtime.recoverParseError(this, PnutsParserConstants.RPAREN);
+  }
+  {
+    jjtThis.setToken(t1);
+  } #ApplicationNode(2)
+}
+
+void PrimarySuffix(ParseEnvironment env) #void :
+{}
+{
+  "[" Eol() (
+        LOOKAHEAD("]") "]" {
+                           } #ArrayType(1)
+       |
+        Expression(env) Eol() ( ".." Eol() ( LOOKAHEAD("]") "]" #RangeNode(2)
+	                                 |
+		                         Expression(env) Eol() "]" #RangeNode(3))
+	                      |
+                             "]" #IndexNode(2)  ))
+|
+  LOOKAHEAD( "." (<IDENTIFIER>|<YIELD>|<FUNCTION>|<FOREACH>) "(" ) MethodNode(env)
+|
+  LOOKAHEAD( "::" (<IDENTIFIER>|<YIELD>|<FUNCTION>|<FOREACH>) "(" ) StaticMethodNode(env)
+|
+  MemberNode()
+|
+  StaticMemberNode()
+|
+  ApplicationNode(env)
+}
+
+void Literal() #void :
+{ Token t; }
+{
+  t = <INTEGER_LITERAL>
+  { try {
+     jjtThis.str = t.image; 
+     jjtThis.setToken(t);
+     jjtThis.info = Runtime.parseInt(t.image);
+    } catch (ParseException e){
+        token.next = token_source.getNextToken();
+	throw generateParseException();
+    }
+   } #IntegerNode
+|
+  t = <FLOATING_POINT_LITERAL>
+  {
+     jjtThis.str = t.image;
+     jjtThis.setToken(t);
+     jjtThis.info = Runtime.parseFloat(t.image);
+  } #FloatingNode
+|
+  t = <CHARACTER_LITERAL>
+  { try {
+	jjtThis.str = t.image;
+	jjtThis.value = Runtime.parseChar(t.image);
+	jjtThis.info = jjtThis.value;
+    } catch (ParseException e){
+        token.next = token_source.getNextToken();
+	throw generateParseException();
+    }
+  } #CharacterNode
+|
+  t = <STRING_LITERAL>
+  { try {
+	String image = t.image;
+	jjtThis.str = Runtime.parseString(image, 1);
+    } catch (ParseException e){
+        token.next = token_source.getNextToken();
+	throw generateParseException();
+    }
+  } #StringNode
+|
+  t = <STRING_LITERAL2>
+  {
+	String image = t.image;
+	jjtThis.str = image.substring(1, image.length() - 1);
+  } #StringNode
+|
+  BooleanLiteral()
+|
+  NullLiteral()
+}
+
+void StringExpression(ParseEnvironment env) #StringNode : 
+{ Token strTok; Token t; }
+{
+  t = <DOUBLEQUOTE>
+  (
+    strTok = <STRING_CONTENT> 
+    {
+       SimpleNode n = new SimpleNode(PnutsParserTreeConstants.JJTSTRINGNODE);
+       n.str = Runtime.parseString(strTok.image, 0);
+       jjtree.pushNode(n);
+    }
+  |
+   (
+    <START_INLINE_EXPR>
+    Expression(env)
+    <END_INLINE_EXPR> 
+   )
+  )*
+  <STRING_DOUBLEQUOTE> 
+}
+
+
+void BooleanLiteral() #void :
+{ Token t; }
+{
+  t="true" { jjtThis.setToken(t); } #TrueNode
+|
+  t="false" { jjtThis.setToken(t); } #FalseNode
+}
+
+void NullLiteral() #void :
+{ Token t; }
+{
+  t="null" { jjtThis.setToken(t); } #NullNode
+}
+
+void Assignment(ParseEnvironment env) #void :
+{ Token t; }
+{
+  ( t="="    Eol() Expression(env) { jjtThis.setToken(t); } #Assignment(2)
+  | t="*="   Eol() Expression(env) { jjtThis.setToken(t); } #AssignmentTA(2)
+  | t="%="   Eol() Expression(env) { jjtThis.setToken(t); } #AssignmentMA(2)
+  | t="/="   Eol() Expression(env) { jjtThis.setToken(t); } #AssignmentDA(2)
+  | t="+="   Eol() Expression(env) { jjtThis.setToken(t); } #AssignmentPA(2)
+  | t="-="   Eol() Expression(env) { jjtThis.setToken(t); } #AssignmentSA(2)
+  | t="<<="  Eol() Expression(env) { jjtThis.setToken(t); } #AssignmentLA(2)
+  | t=">>="  Eol() Expression(env) { jjtThis.setToken(t); } #AssignmentRA(2)
+  | t=">>>=" Eol() Expression(env) { jjtThis.setToken(t); } #AssignmentRAA(2)
+  | t="&="   Eol() Expression(env) { jjtThis.setToken(t); } #AssignmentAA(2)
+  | t="^="   Eol() Expression(env) { jjtThis.setToken(t); } #AssignmentEA(2)
+  | t="|="   Eol() Expression(env) { jjtThis.setToken(t); } #AssignmentOA(2)
+  )
+}
+
+void ConditionalExpression(ParseEnvironment env) #void :
+{ Token t = null; }
+{
+  ConditionalOrExpression(env) [ t="?" Eol() Expression(env) ":" Eol() ConditionalExpression(env) { jjtThis.setToken(t); } #TernaryNode(3) ]
+}
+
+
+void ConditionalOrExpression(ParseEnvironment env) #void :
+{ Token t = null; }
+{
+  ConditionalAndExpression(env)
+  ( LOOKAHEAD(Eol() "||") Eol() t="||" Eol() ConditionalAndExpression(env) { jjtThis.setToken(t); } #LogOrNode(2) )*
+}
+
+void ConditionalAndExpression(ParseEnvironment env) #void :
+{ Token t = null; }
+{
+  InclusiveOrExpression(env)
+  ( LOOKAHEAD(Eol() "&&") Eol() t="&&" Eol() InclusiveOrExpression(env) { jjtThis.setToken(t); } #LogAndNode(2) )*
+}
+
+void InclusiveOrExpression(ParseEnvironment env) #void :
+{ Token t = null; }
+{
+  ExclusiveOrExpression(env)
+  ( LOOKAHEAD(Eol() "|") Eol() t="|" Eol() ExclusiveOrExpression(env) { jjtThis.setToken(t); } #OrNode(2) )*
+}
+
+void ExclusiveOrExpression(ParseEnvironment env) #void :
+{ Token t = null; }
+{
+  AndExpression(env)
+  ( LOOKAHEAD(Eol() "^") Eol() t="^" Eol() AndExpression(env) { jjtThis.setToken(t); } #XorNode(2) )*
+}
+
+void AndExpression(ParseEnvironment env) #void :
+{ Token t = null; }
+{
+  EqualityExpression(env)
+  ( LOOKAHEAD(Eol() "&") Eol() t="&" Eol() EqualityExpression(env) { jjtThis.setToken(t); } #AndNode(2) )*
+}
+
+void EqualityExpression(ParseEnvironment env) #void :
+{ Token t = null; }
+{
+  InstanceofExpression(env) (LOOKAHEAD(Eol() ("=="|"!=")) Eol()
+  (
+     t="==" Eol() InstanceofExpression(env) { jjtThis.setToken(t); } #EqualNode(2)
+  |
+     t="!=" Eol() InstanceofExpression(env) { jjtThis.setToken(t); } #NotEqNode(2)
+  ))*
+}
+
+void InstanceofExpression(ParseEnvironment env) #void:
+{ Token t = null; }
+{
+  RelationalExpression(env) 
+   [  LOOKAHEAD(Eol() "instanceof") Eol() t="instanceof" Type(env) { jjtThis.setToken(t); } #InstanceofExpression(2) ]
+}
+
+void RelationalExpression(ParseEnvironment env) #void:
+{}
+{
+  ShiftExpression(env) (LOOKAHEAD(Eol() ("<"|">"|"<="|">=")) Eol()
+  ( 
+     "<" Eol() ShiftExpression(env) #LTNode(2)
+  |
+     ">" Eol() ShiftExpression(env) #GTNode(2)
+  |
+     "<=" Eol() ShiftExpression(env) #LENode(2)
+  |
+     ">=" Eol() ShiftExpression(env) #GENode(2)
+  ))*
+}
+
+void ShiftExpression(ParseEnvironment env) #void :
+{ Token t; }
+{
+  AdditiveExpression(env) (LOOKAHEAD(Eol() ("<<"|">>"|">>>")) Eol()
+  (
+    t="<<" Eol() AdditiveExpression(env) { jjtThis.setToken(t); } #ShiftLeftNode(2)
+  |
+    t=">>" Eol() AdditiveExpression(env) { jjtThis.setToken(t); } #ShiftRightNode(2)
+  |
+    t=">>>" Eol() AdditiveExpression(env) { jjtThis.setToken(t); } #ShiftArithmeticNode(2)
+  ))*
+}
+
+void AdditiveExpression(ParseEnvironment env) #void :
+{ Token t; }
+{
+  MultiplicativeExpression(env) (LOOKAHEAD(Eol() ("+"|"-")) Eol()
+  (
+    t="+" Eol() MultiplicativeExpression(env)
+  {
+     jjtThis.setToken(t);
+  } #AddNode(2)
+  |
+    t="-" Eol() MultiplicativeExpression(env)
+  {
+     jjtThis.setToken(t);
+  } #SubtractNode(2)
+  ))*
+}
+
+void MultiplicativeExpression(ParseEnvironment env) #void :
+{ Token t; }
+{
+  UnaryExpression(env) (LOOKAHEAD(Eol() ("*"|"/"|"%")) Eol()
+  (
+    t="*" Eol() UnaryExpression(env) { jjtThis.setToken(t); } #MultNode(2)
+  |
+    t="/" Eol() UnaryExpression(env) { jjtThis.setToken(t); } #DivideNode(2)
+  |
+    t="%" Eol() UnaryExpression(env) { jjtThis.setToken(t); } #ModNode(2)
+  ))*
+}
+
+void UnaryExpression(ParseEnvironment env) #void :
+{ Token t; }
+{
+  t="+" UnaryExpression(env)
+|
+  t="-" UnaryExpression(env) { jjtThis.setToken(t); } #NegativeNode (1)
+|
+  t="++" PrimaryExpression(env) { jjtThis.setToken(t); } #PreIncrNode (1)
+|
+  t="--" PrimaryExpression(env) { jjtThis.setToken(t); } #PreDecrNode (1)
+|
+  UnaryExpressionNotPlusMinus(env)
+}
+
+void UnaryExpressionNotPlusMinus(ParseEnvironment env) #void :
+{ Token t; }
+{
+    t="~" UnaryExpression(env) { jjtThis.setToken(t); } #NotNode (1)
+  |
+    t="!" UnaryExpression(env) { jjtThis.setToken(t); } #LogNotNode (1)
+  |
+    LOOKAHEAD(CastLookAhead())
+    CastExpression(env)
+  |
+    PostOpe(env)
+}
+
+void CastLookAhead() #void :
+{}
+{
+   "(" ClassName() ( "[" "]" )* ")" FirstSet()
+}
+
+void FirstSet() #void :
+{}
+{
+   ( <IDENTIFIER> | "::" | Literal() | "++" | "--" | "~" | "!" | "[" | "(" | "-" | "+" | "class" | "{")
+}
+
+void FirstSet2() #void :
+{}
+{
+   ( <IF> | <WHILE> | <FOR> | <FOREACH> | <SWITCH> | <FUNCTION> | <CATCH> | <RETURN> | <BREAK> | <CONTINUE> | <DO> | <TRY> | <IMPORT> | <THROW> | <PACKAGE> )
+}
+
+void CastExpression(ParseEnvironment env) #void :
+{ Token t; }
+{
+   t="(" Eol() Type(env) Eol() ")" UnaryExpressionNotPlusMinus(env)
+   { jjtThis.setToken(t); } #CastExpression(2)
+}
+
+void PostOpe(ParseEnvironment env) #void : 
+{ Token t; }
+{
+  PrimaryExpression(env)
+  [
+    t="++" { jjtThis.setToken(t); } #PostIncrNode(1)
+   |
+    t="--" { jjtThis.setToken(t); } #PostDecrNode(1)
+  ]
+}
+
+void StatementExpression(ParseEnvironment env) #void :
+{}
+{
+  IfStatement(env)
+|
+  WhileStatement(env)
+|
+  DoStatement(env)
+|
+  ForeachStatement(env)
+|
+  ForStatement(env)
+|
+  SwitchStatement(env)
+|
+  Break(env)
+|
+  Continue()
+|
+  Return(env)
+|
+  Yield(env)
+|
+  FunctionStatement(env)
+|
+  TryStatement(env)
+|
+  CatchNode(env)
+|
+  FinallyNode(env)
+|
+  Import(env)
+|
+  ThrowNode(env)
+}
+
+void Break(ParseEnvironment env) :
+{ Token t; }
+{
+  t=<BREAK> [ Expression(env) ]
+  { jjtThis.setToken(t); }
+}
+
+void Continue() :
+{ Token t;}
+{
+  t=<CONTINUE>
+  { jjtThis.setToken(t); }
+}
+
+void Return(ParseEnvironment env) :
+{ Token t; }
+{
+  t=<RETURN> [ Expression(env) ]
+  { jjtThis.setToken(t); }
+}
+
+void Yield(ParseEnvironment env) :
+{ Token t; }
+{
+  t=<YIELD> [ Expression(env) ]
+  {
+      jjtThis.setToken(t);
+  }
+}
+
+
+void PackageStatement(ParseEnvironment env) :
+{ Token t = null;}
+{
+  <PACKAGE> 
+   (
+     Package() ( LOOKAHEAD("." <IDENTIFIER> ) "." Package() )*
+  |
+    t="(" [ Expression(env) ] ")"
+   )
+  {
+	if (t != null){
+  	       jjtThis.setToken(t);
+		jjtThis.str = t.image.intern();
+       }
+  }
+}
+
+
+void Import(ParseEnvironment env) :
+{ Token t1; Token t2 = null; Token t3 = null;}
+{
+  t1="import"  [t3="static"] [
+  (
+     Package() (LOOKAHEAD(2) "." Package() )* [ "." t2="*" ]
+   |
+     t2="*"
+   |
+    t2="(" [ Expression(env) ] ")"
+  ) ]
+  {
+       jjtThis.setToken(t1);
+       if (t2 != null){
+	  jjtThis.str = t2.image;
+       }
+	 if (t3 != null){
+	   jjtThis.info = "static";
+       }
+  }
+}
+
+void Block0(ParseEnvironment env) #void : 
+{}
+{
+   try {
+     [ Expression(env) ((";" |<EOL>) [ Expression(env) ] )* ]
+  } catch (ParseException e){
+    if (env != null){
+	env.handleParseException(e);
+    }
+    Token t;
+ext:
+    while (true) {
+      t = getNextToken();
+      int tk = t.kind;
+      if (tk == PnutsParserConstants.RBRACE || tk == PnutsParserConstants.EOF){
+        break;
+      } 
+      if (tk == PnutsParserConstants.EOL || tk == PnutsParserConstants.SEMICOLON){
+	   int i = 0;
+         while (tk == PnutsParserConstants.EOL || tk == PnutsParserConstants.SEMICOLON){
+            t = getToken(++i);
+            tk = t.kind;
+	      if (tk == 0){
+			 break ext;
+		}
+         }
+         tk = getToken(i).kind;
+         if (tk == PnutsParserConstants.RBRACE || tk == PnutsParserConstants.EOF){
+           for (int j = 0; j < i; j++){
+              getNextToken();
+           }
+         } else {
+            for (int j = 0; j < i - 1; j++){
+               getNextToken();
+            }
+            Block0(env);
+         }
+	   break;
+      }
+    } 
+  }
+}
+
+void Block(ParseEnvironment env):
+{ Token t1; }
+{
+   LOOKAHEAD("{" Expression() ",")  Expression(env)
+|
+   LOOKAHEAD("{") t1="{" Eol() Block0(env) "}"
+   {
+      jjtThis.setToken(t1);
+   }
+|
+   Expression(env) (LOOKAHEAD(1) ";" [Expression(env)])*
+|
+   ";"
+}
+
+void Block2(ParseEnvironment env) #Block : 
+{ Token t1; }
+{
+   t1="{" Eol() Block0(env) "}"
+   {
+      jjtThis.setToken(t1);
+   }
+}
+
+void IfStatement(ParseEnvironment env) :
+{ Token t1; }
+{
+  t1=<IF> Eol()
+  "("
+  try {
+    Eol() Expression(env) Eol()
+   ")"
+  } catch (ParseException e){
+    if (env != null){
+	env.handleParseException(e);
+    }
+    Runtime.recoverParseError(this, PnutsParserConstants.RPAREN);
+  }
+  Eol() Block(env)
+( LOOKAHEAD(Eol() <ELSE> <IF>) ElseIfNode(env) )*
+  [ LOOKAHEAD(Eol() <ELSE> Eol() ("{" | FirstSet() | FirstSet2())) ElseNode(env) ]
+  {
+    jjtThis.setToken(t1);
+  }
+}
+
+void ElseIfNode(ParseEnvironment env) :
+{}
+{
+  Eol() <ELSE> <IF> "("
+  try {
+    Eol() Expression(env) Eol() ")"
+  } catch (ParseException e){
+    if (env != null){
+	env.handleParseException(e);
+    }
+    Runtime.recoverParseError(this, PnutsParserConstants.RPAREN);
+  }
+  Eol() Block(env)
+}
+
+void ElseNode(ParseEnvironment env) : 
+{ Token t; }
+{
+  Eol() t=<ELSE> Eol() Block(env)
+  { jjtThis.setToken(t); }
+}
+
+void WhileStatement(ParseEnvironment env) :
+{ Token t1; }
+{
+  t1=<WHILE> Eol() "("
+  try {
+    Eol() Expression(env) Eol() ")"
+  } catch (ParseException e){
+    if (env != null){
+	env.handleParseException(e);
+    }
+    Runtime.recoverParseError(this, PnutsParserConstants.RPAREN);
+  }
+  Eol() Block(env)
+  {
+    jjtThis.setToken(t1);
+  }
+}
+
+void TryStatement(ParseEnvironment env) :
+{ Token t; }
+{
+   t=<TRY> Eol() Block2(env) 
+  (LOOKAHEAD(Eol() <CATCH> "(" ClassName() <IDENTIFIER>) Eol() CatchBlock(env) )* 
+  [ LOOKAHEAD(Eol() <FINALLY>) Eol() FinallyBlock(env)  ]
+  {
+    jjtThis.setToken(t);
+  }
+}
+
+void CatchBlock(ParseEnvironment env) :
+{ Token t0, t1;}
+{
+   t0=<CATCH> "(" ClassName() t1=<IDENTIFIER> ")" Eol() Block2(env)
+  {
+     jjtThis.str = t1.image.intern();
+     jjtThis.setToken(t0);
+  }
+}
+
+void CatchNode(ParseEnvironment env) :
+{ Token t1, t2 = null; }
+{
+    t1=<CATCH>
+    [  "(" Eol() Expression(env) Eol() "," Eol() Expression(env) Eol() t2=")" ]
+    {
+	jjtThis.setToken(t1);
+	jjtThis.str = t1.image.intern();
+    }
+}
+
+void FinallyNode(ParseEnvironment env) :
+{ Token t1, t2 = null; }
+{
+    t1=<FINALLY>
+    [
+      "(" Eol() Expression(env) Eol()
+      [ "," Eol() Expression(env) Eol() ]
+     t2=")"]
+    {
+	jjtThis.setToken(t1);
+	jjtThis.str = t1.image.intern();
+    }
+}
+
+void ThrowNode(ParseEnvironment env) :
+{ Token t1; }
+{
+    t1=<THROW> [ Expression(env) ]
+    {
+	jjtThis.setToken(t1);
+	jjtThis.str = t1.image.intern();
+    }
+}
+
+void FinallyBlock(ParseEnvironment env) :
+{ Token t; }
+{
+   t=<FINALLY> Eol() Block2(env)
+  {
+    jjtThis.setToken(t);
+  }
+}
+
+void DoStatement(ParseEnvironment env) :
+{ Token t; }
+{
+  t=<DO> Eol() Block2(env) Eol() <WHILE> Eol() "(" Eol() Expression(env) Eol() ")" 
+  {
+    jjtThis.setToken(t);
+  }
+}
+
+void ForStatement(ParseEnvironment env) :
+{ Token t1; }
+{
+  t1=<FOR> Eol()
+  "(" 
+  try {
+    Eol() ( 
+     LOOKAHEAD(<IDENTIFIER> "," | <IDENTIFIER> Eol() ":") ForEnum(env) 
+      |
+     [ ForInit(env) ] ";" Eol()
+     [ Expression(env) Eol() ] ";" Eol()
+     [ ForUpdate(env) ]
+    )
+  ")"
+  } catch (ParseException e){
+    if (env != null){
+      env.handleParseException(e);
+    }
+    Runtime.recoverParseError(this, PnutsParserConstants.RPAREN);
+  }
+  Eol() 
+  Block(env)
+  {
+    jjtThis.setToken(t1);
+  }
+}
+
+void ForEnum(ParseEnvironment env) :
+{ Token t = null; }
+{
+  (
+    LOOKAHEAD(<IDENTIFIER> ",") MultiAssignLHS(env)
+  |
+    t=<IDENTIFIER> 
+  )
+   Eol() ":" Eol() Expression(env) Eol() [".." Eol() Expression(env) Eol() ]
+  { if (t != null){ jjtThis.str = t.image.intern(); }}
+}
+
+void ForInit(ParseEnvironment env) :
+{}
+{
+  Local(env) Eol() ( "," Eol() Local(env) Eol() )*
+}
+
+void ForUpdate(ParseEnvironment env) :
+{}
+{
+  Expression(env) Eol() ( "," Eol() Expression(env) Eol() )*
+}
+
+void Local(ParseEnvironment env) :
+{ Token t; }
+{
+  t=<IDENTIFIER> "=" Eol() Expression(env)
+  { jjtThis.str = t.image.intern(); }
+}
+
+void ForeachStatement(ParseEnvironment env) :
+{ Token t1; }
+{
+  <FOREACH> Eol() t1 = <IDENTIFIER> 
+  (
+     "[" 
+     try {
+       ListElements(env)  #ListElements "]"
+     } catch (ParseException e){
+        if (env != null){
+          env.handleParseException(e);
+        }
+        Runtime.recoverParseError(this, PnutsParserConstants.RBRACKET);
+     }
+  |
+     "(" Eol()
+     try {
+      Expression(env) Eol() ")"
+     } catch (ParseException e){
+        if (env != null){
+          env.handleParseException(e);
+        }
+        Runtime.recoverParseError(this, PnutsParserConstants.RPAREN);
+     }
+  )
+  Eol() Block(env)
+  {
+     jjtThis.str = t1.image.intern();
+     jjtThis.setToken(t1);
+  }
+}
+
+void SwitchStatement(ParseEnvironment env) :
+{ Token t1, t2; }
+{
+  t1=<SWITCH> Eol()
+  "(" Eol()
+  try {
+    Expression(env) Eol()
+    ")"
+  } catch (ParseException e){
+    if (env != null){
+	env.handleParseException(e);
+    }
+    Runtime.recoverParseError(this, PnutsParserConstants.RPAREN);
+  }
+  Eol() "{" Eol()
+  ( SwitchLabel(env) SwitchBlock(env) )* 
+  t2="}"
+  {
+     jjtThis.setToken(t1);
+  }
+}
+
+void SwitchBlock(ParseEnvironment env) :
+{}
+{
+   (
+     LOOKAHEAD("{") Block2(env)
+    |
+     [ Expression(env) ] ( (";" |<EOL>) [ Expression(env) ] )*
+   )
+}
+
+void SwitchLabel(ParseEnvironment env) :
+{}
+{
+  "case" Expression(env) ":"
+|
+  "default" ":"
+}
+
+SimpleNode FunctionStatement(ParseEnvironment env) :
+{ Token t = null; Token f = null; }
+{
+  f=<FUNCTION> [t = <IDENTIFIER>] "(" ParamList(env) ")" Eol() Block(env)
+  {
+     if (t != null) {
+	jjtThis.str = t.image.intern();
+        jjtThis.setToken(t);
+     }
+     return jjtThis;
+  }
+}
+
+/*
+void ParamList(ParseEnvironment env) :
+{}
+{
+  try {
+   [ Param() (
+             "[" "]" #IndexNode(1)
+             |
+              ("," Param() )*
+              ) ]
+  } catch (ParseException e){
+    if (env != null){
+	env.handleParseException(e);
+    }
+    Runtime.recoverParseError(this, PnutsParserConstants.RPAREN);
+  }
+}
+*/
+
+void ParamList(ParseEnvironment env) :
+{ Token t = null;}
+{
+  try {
+   [ Param() ("," Param() )*  [ t="[" "]" ] ]
+  } catch (ParseException e){
+    if (env != null){
+	env.handleParseException(e);
+    }
+    Runtime.recoverParseError(this, PnutsParserConstants.RPAREN);
+  }
+   {
+     if (t != null){
+	jjtThis.str = "[";
+     }
+   }
+}
+
+void Param() :
+{ Token t; }
+{
+  Eol() t = <IDENTIFIER> Eol()
+  { jjtThis.str = t.image.intern(); }
+}
+
+void TypedParam(ParseEnvironment env) :
+{}
+{
+   LOOKAHEAD(Param() (")"|",")) Param()
+   |
+   Type(env) Param()
+}
+
+void TypedParamList(ParseEnvironment env) :
+{}
+{
+  "(" 
+   try {
+ (
+    ")"
+    |
+   TypedParam(env) ("," TypedParam(env) )* 
+   ")"
+  )
+  } catch (ParseException e){
+    if (env != null){
+	env.handleParseException(e);
+    }
+    Runtime.recoverParseError(this, PnutsParserConstants.RPAREN);
+  }
+}
+
+void BeanDef(ParseEnvironment env) :
+{}
+{
+  ClassName()
+  "{" Eol()
+    BeanPropertyDef(env) ( LOOKAHEAD((<EOL>|";") Eol() <IDENTIFIER>) (<EOL>|";") Eol() BeanPropertyDef(env) )* Eol()
+  "}"
+}
+
+void BeanPropertyDef(ParseEnvironment env) :
+{ Token t; Token seperator; }
+{
+  t=<IDENTIFIER> (seperator=":"|seperator="::") Eol() Expression(env) 
+  {
+    jjtThis.str = t.image.intern();
+    jjtThis.info = seperator.image;
+  }
+}

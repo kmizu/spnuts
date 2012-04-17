@@ -1,0 +1,119 @@
+package("pnuts.util")
+
+import("java.lang.reflect.Modifier")
+
+/**
+ * List all public fields and methods and constructors of the specified class
+ */
+function dumpclass(clazz){
+  listConstructors(clazz)
+  listStaticMethods(clazz)
+  listStaticFields(clazz)
+  listInstanceMethods(clazz)
+}
+
+last = function (name){
+  idx2 = name.indexOf(' ')
+  if (idx2 > 0){
+    name = name.substring(0, idx2)
+  }
+  idx = name.lastIndexOf('.')
+  if (idx > 0){
+     return name.substring(idx + 1)
+  } else {
+     return name
+  }
+}
+
+function printParams(classList){
+     if (classList.length == 0){
+        println(")")
+     } else {
+       print(last(format(classList[0])))
+       for (m = 1; m < classList.length; ++m){
+	  print(",")
+          print(last(format(classList[m])))
+       }
+       println(")")
+     }
+}
+
+listConstructors = function (clazz){
+  c = list(filter(clazz.getConstructors(), function (x) isPublic(x)))
+  if (size(c) > 0){
+      println("\n--- constructors  -----------------------")
+  }
+  foreach j (c){
+      print(" " + last(j.getName()) + "(")
+      printParams(j.getParameterTypes())
+  }
+}
+
+listStaticMethods= function (clazz){
+  c = list(filter(clazz.getDeclaredMethods(), function (x) isPublic(x) && isStatic(x)))
+  if (size(c) > 0) {
+      println("\n--- static methods -----------------------")
+  }
+  foreach j (c){
+      print(" static " + last(format(j.getReturnType())) + " " + j.getName() + "(")
+      printParams(j.getParameterTypes())
+  }
+}
+
+listStaticFields = function (clazz){
+  c = list(filter(clazz.getDeclaredFields(), function (x) isPublic(x) && isStatic(x)))
+  if (size(c) > 0) {
+      println("\n--- static fields -----------------------")
+  }
+  foreach j (c){
+      println(" static " + last(format(j.getType())) + " " + j.getName())
+  }
+}
+
+listInstanceMethods = function (clazz){
+  c = list(filter(clazz.getDeclaredMethods(), function (x) isPublic(x) && !isStatic(x)))
+  if (size(c) > 0) {
+      println("\n--- instance methods -----------------------")
+  }
+  foreach j (c){
+      print(" " + last(format(j.getReturnType())) + " " + j.getName() + "(")
+      printParams(j.getParameterTypes())
+  }
+}
+
+listInterfaces = function (type, col){
+  foreach i (type.getInterfaces()){
+    col.add(i)
+    listInterfaces(i, col)
+  }
+}
+
+function supertypes(cls) {
+  supertypes(cls, classes = set(), interfaces = set())
+  mapFunction(println, interfaces)
+  mapFunction(println, classes)
+}
+
+/**
+ * List all super types of the specified class
+ */
+function supertypes(cls, classes, interfaces){
+  c = cls
+  while ((s = c.getSuperclass()) != null){
+     classes.add(s)
+     c = s
+  }
+  c = cls
+  listInterfaces(c, interfaces)
+  while ((s = c.getSuperclass()) != null){
+     foreach i (s.getInterfaces()){
+        interfaces.add(i)
+        listInterfaces(i, interfaces)
+     }
+     c = s
+  }
+  null
+}
+
+
+null

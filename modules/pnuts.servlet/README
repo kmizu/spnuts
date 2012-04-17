@@ -1,0 +1,5 @@
+INSTALLATION
+=============
+
+1. Add servlet.jar to your CLASSPATH
+2. make; make install

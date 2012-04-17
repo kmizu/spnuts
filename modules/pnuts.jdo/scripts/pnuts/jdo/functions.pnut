@@ -1,0 +1,225 @@
+/*
+ * jdo module
+ *
+ * jdo = openJDO()
+ * jdo.add(pc {, tran} )
+ * jdo.query(cls {, q_prop} )
+ * jdo.list(class_or_query)
+ * jdo.list(cls, q_prop)
+ * jdo.find(class_or_query)
+ * jdo.find(cls, filter)
+ * jdo.delete(pc_or_col {, tran})
+ * jdo.update(pc_or_col, updates {, tran})
+ * jdo.transaction(func)
+ * jdo.currentTransaction()
+ * jdo.close()
+ *
+ */
+package("pnuts.jdo")
+
+import("java.util.Map")
+import("java.util.Collection")
+import("javax.jdo.Query")
+import("javax.jdo.spi.PersistenceCapable")
+import("javax.jdo.JDOHelper")
+import("javax.jdo.JDOException")
+
+function openJDO(prop){
+  openJDO(null, prop)
+}
+
+/*
+ * properties:
+ *  connectionURL
+ *  connectionDriverName
+ *  connectionUserName
+ *  connectionPassword
+ *  maxPool, minPool, msWait
+ *  optimistic, retainValues
+ *  ignoreCache, multithreaded
+ *  nonTransactionalRead, nonTransactionalWrite
+ */
+function openJDO(db, properties){
+  ctx = getContext()
+  key = "pnuts.jdo.persistenceManager"
+  if (db != null) key += "." + db
+  pm = ctx.get(key.intern())
+  if (pm == null || pm.isClosed()){
+   if (properties != null){
+     if (properties instanceof String){
+       properties = map(properties)
+     }
+   }
+   f = JDOHelper::getPersistenceManagerFactory(properties)
+   pm = f.getPersistenceManager()
+   ctx.set(key.intern(), pm)
+  }
+  exports(pm)
+}
+
+function exports(pm) $(
+
+  function getPersistenceManager() pm,
+
+  function add(pc) add(pc, false),
+  function add(pc, tran){
+    catch(JDOException, function (e){
+        if (transaction.isActive()) transaction.rollback()
+        throw(e)
+    })
+    if (tran){
+        transaction = pm.currentTransaction()
+        transaction.begin()
+    }
+    pm.makePersistent(pc)
+    if (tran){
+      transaction.commit()
+    }
+  },
+
+  function delete(pc_or_col) delete(pc_or_col, false),
+  function delete(pc_or_col, tran) {
+    if (pc_or_col instanceof PersistenceCapable){
+      type = 0
+    } else if (pc_or_col instanceof Collection){
+      type = 1
+    } else {
+      throw (IllegalArgumentException())
+    }
+    catch(JDOException, function (e){
+       if (transaction.isActive()) transaction.rollback()
+       throw(e)
+    })
+    if (tran){
+        transaction = pm.currentTransaction()
+        transaction.begin()
+    }
+    if (type == 0){
+        pm.deletePersistent(pc_or_col)
+    } else {
+        pm.deletePersistentAll(pc_or_col)
+    }
+    if (tran){
+        transaction.commit()
+    }
+  },
+
+  function query(cls) query(cls, null),
+
+  function query(cls, q_properties){
+    q = pm.newQuery(cls)
+    if (q_properties != null){
+      if (q_properties instanceof String){
+        q_properties = map(q_properties)
+      }
+      setBeanProperties(q, q_properties)
+    }
+    q
+  },
+
+  function list(class_or_query){
+    if (class_or_query instanceof Class){
+      q = query(class_or_query, null)
+    } else if (class_or_query instanceof Query){
+      q = class_or_query
+    } else {
+      throw(IllegalArgumentException())
+    }
+    q.execute()
+  },
+
+  function list(cls, q_properties){
+    query(cls, q_properties).execute()
+  }, 
+
+  function find(class_or_query){
+    foreach i (list(class_or_query)){
+      return i
+    }
+  },
+  function find(cls, filter){
+    q = query(cls, map([["filter", filter]]))
+    foreach i (q.execute()){
+      return i
+    }
+  },
+
+  function update(pc_or_col){
+    add(pc_or_col)
+  },
+
+  function update(pc_or_col, u){
+    if (u instanceof Boolean){
+      update(pc_or_col, null, u)
+    } else {
+      update(pc_or_col, u, false)
+    }
+  },
+
+  function update(pc_or_col, u, tran){
+    if (u instanceof String){
+      u = map(u)
+    }
+    if (u instanceof Map){
+      action = 0
+    } else if (isFunction(u, 1)){
+      action = 1
+    } else {
+      throw(IllegalArgumentException())
+    }
+    if (pc_or_col instanceof PersistenceCapable){
+      type = 0
+    } else if (pc_or_col instanceof Collection){
+      type = 1
+    } else {
+      throw(IllegalArgumentException())
+    }
+    catch(JDOException, function (e){
+       if (transaction.isActive()) transaction.rollback()
+       throw(e)
+    })
+    if (tran){
+        transaction = pm.currentTransaction()
+        transaction.begin()
+    }
+    if (type == 0){
+        if (action == 0){
+           setBeanProperties(pc_or_col, u)
+        } else {
+           u(pc_or_col)
+        }
+        pm.makePersistent(pc_or_col)
+    } else {
+        foreach pc (pc_or_col){
+          if (action == 0){
+             setBeanProperties(pc, u)
+          } else {
+             u(pc)
+          }
+          pm.makePersistent(pc)
+        }
+    }
+    if (tran){
+       transaction.commit()
+    }
+   }, 
+
+  function currentTransaction(){
+    pm.currentTransaction()
+  },
+
+  function transaction(func){
+    catch (Exception, function (e){
+      if (t.isActive()) t.rollback()
+      throw(e)
+    })
+    t = pm.currentTransaction()
+    t.begin()
+    func(pm)
+    t.commit()
+  },
+
+  function close(){
+   pm.close()
+  }
+)

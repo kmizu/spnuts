@@ -1,0 +1,197 @@
+package("pnuts.util")
+
+import("java.io.IOException")
+import("java.io.File")
+
+function mkdir(dir){
+   getFile(dir).mkdirs()
+}
+
+function exists(file){
+  getFile(file).exists()
+}
+
+function isDirectory(file){
+  getFile(file).directory
+}
+
+function canRead(file){
+  getFile(file).canRead()
+}
+
+function canWrite(file){
+  getFile(file).canWrite()
+}
+
+function renameTo (file, dest){
+   getFile(file).renameTo(getFile(dest))
+}
+
+function delete(file) delete(file, false)
+
+function delete(file, recursive){
+   if (isArray(file)){
+     for (f : file) delete(f, recursive)
+   } else {
+     file = getFile(file)
+     if (recursive && file.directory){
+        for (i : file.list()){
+          delete(getFile(file, i), recursive)
+        }
+     }   
+     file.delete()
+   }
+}
+
+function pwd(){
+   getFile(".")
+}
+
+function chdir (dir) {
+    f = getFile(dir)
+    path = f.path
+    if (f.exists()){
+      getContext().cwd = path
+      return getFile(".")
+    } else {
+      ERROR("folder.notExist", path)
+    }
+}
+
+function copy(src, dest){
+  if (isArray(src)){
+    for (f : src) copy(f, dest)
+  } else {
+    src = getFile(src)
+    dest = getFile(dest)
+    if (src.directory){
+      if (dest.exists()){
+        if (!dest.directory){
+          ERROR("destination.shouldBeAFolder")
+        }
+      } else {
+        dest.mkdirs()
+      }
+      dest = getFile(dest, src.name)
+      mkdir(dest)
+    }
+    _copy(src, dest)
+  }
+}
+
+function _copy(src, dest){
+  if (src.directory){
+    for (f : src.listFiles()){
+       if (f.directory){
+	 d = File(dest, f.name)
+         d.mkdirs()
+	 _copy(f, d)
+       } else {
+         _copy(f, dest)
+       }
+    }
+  } else {
+    if (dest.directory){
+      read(src, File(dest, src.name))
+    } else {
+      read(src, dest)
+    }
+  }
+}
+
+import("java.net.URL")
+
+function cat (file) {
+  if (isArray(file)){
+    for (f : file) cat(f)
+  } else {
+    c = getContext()
+    out = c.getOutputStream()
+    if (out != null){
+      cat(file, out)
+    } else {
+      cat(file, getContext().getWriter())
+    }
+  }
+}
+
+function cat (file, out){
+  if (isArray(file)){
+    for (f : file) cat(f, out)
+  } else {
+    read(file, out)
+  }
+}
+
+function createTempFile(prefix, suffix){
+  createTempFile(prefix, suffix, null)
+}
+
+function createTempFile(prefix, suffix, dir){
+  if (isJava2()){
+    file = File::createTempFile(prefix, suffix, dir)
+    file.deleteOnExit()
+    file
+  } else {
+    if (suffix == null) suffix = ".tmp"
+    if (dir == null) dir = File(pwd())
+    file = null
+    result = false
+    while (!result){
+      file = generateTempFile(prefix, suffix, dir)
+      if (!file.exists()){
+        result = createNewFile(file)
+      }
+    }
+    file
+  }
+}
+
+tempFileCounter = -1
+
+function generateTempFile(prefix, suffix, dir){
+  count = package().tempFileCounter++
+  File(dir, prefix + count + suffix)
+}
+
+function createNewFile(file){
+  try {
+    if (isJava2()){
+      file.createNewFile()
+    } else {
+      open(file, "w").close()
+      true
+    }
+  } catch(IOException e) {
+    false
+  }
+}
+
+function walkDirectory(base) _walkDirectory(getFile(base))
+
+function _walkDirectory(base){
+   yield base
+   if (isDirectory(base)){
+     for (f : base.listFiles()){
+        for (i:_walkDirectory(f)) yield i
+     }
+   }
+}
+
+function walkDirectory(base, callback) walkDirectory(base, callback, null, null)
+function walkDirectory(base, callback, enterFunc, exitFunc){
+   _walkDirectory(getFile(base), callback, enterFunc, exitFunc)
+}
+
+function _walkDirectory(base, callback, enterFunc, exitFunc){
+   if (callback != null) callback(base)
+   if (isDirectory(base)){
+     if (enterFunc != null) {
+        if (!enterFunc(base)) return
+     }
+     for (f : base.listFiles()){
+        _walkDirectory(f, callback, enterFunc, exitFunc)
+     }
+     if (exitFunc != null) exitFunc(base)
+   }
+}

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="java.util" default="main" basedir=".">
+  <import file="../common.xml"/>
+  <property name="jar.file" value="java-util.jar"/>
+</project>

@@ -1,0 +1,249 @@
+import("java.io.*")
+import("java.nio.*")
+import("java.nio.channels.*")
+
+if (!defined("ByteBuffer")){
+  return
+}
+
+package("pnuts.nio")
+
+/*
+ * Buffer openDirectBuffer({Class type, } int capacity)
+ * Buffer openBuffer({Class type, } int capacity)
+ * Buffer openBuffer(byte[] array {, int offset, int size })
+ * Buffer openBuffer(int[] array {, int offset, int size })
+ * Buffer openBuffer(short[] array {, int offset, int size })
+ * Buffer openBuffer(char[] array {, int offset, int size })
+ * Buffer openBuffer(long[] array {, int offset, int size })
+ * Buffer openBuffer(float[] array {, int offset, int size })
+ * Buffer openBuffer(double[] array {, int offset, int size })
+ *
+ * Channel openChannel(String fileName {, "r" or "w" })
+ * Channel openChannel(File file {, "r" or "w" })
+ * Channel openChannel(InputStream input)
+ * Channel openChannel(OutputStream output)
+ * Channel openChannel(SocketAddress addr)
+ *
+ * SocketAddress socketAddress(String hostOrIPaddress, int port)
+ * InputStream open(ReadableByteChannel ch, "r")
+ * OutputStream open(WritableByteChannel ch, "w")
+ * Reader reader(ReadableByteChannel ch {, String charset })
+ * Writer writer(WritableByteChannel ch {, String charset })
+ *
+ * InputStream open(ByteBuffer buf, "r")
+ *
+ * void transferChannel(ReadableByteChannel src, WritableByteChannel dst)
+ * MappedByteBuffer mapFile(file, mode)
+ *
+ */
+io_pkg = getPackage("pnuts.io")
+io_open = io_pkg.open
+io_reader = io_pkg.reader
+io_writer = io_pkg.writer
+
+package("pnuts.nio")
+
+function open(arg) open(arg, "r")
+
+import("pnuts.nio.ByteBufferInputStream")
+
+function open(arg, mode){
+  if (mode == "r" || mode == "R"){
+    if (arg instanceof ByteBuffer){
+      ByteBufferInputStream(arg)
+    } else if (arg instanceof ReadableByteChannel){
+      Channels::newInputStream(arg)
+    } else {
+      io_open(arg, mode)
+    }
+  } else if (mode == "w" || mode == "W"){
+    if (arg instanceof WritableByteChannel){
+      Channels::newOutputStream(arg)
+    } else {
+      io_open(arg, mode)
+    }
+  } else {
+    throw("")
+  }
+}
+
+import("pnuts.nio.CharBufferReader")
+
+function reader(arg){
+  if (arg instanceof ByteBuffer){
+    io_reader(ByteBufferInputStream(arg))
+  } else if (arg instanceof CharBuffer){
+    CharBufferReader(arg)
+  } else {
+    io_reader(arg)
+  }
+}
+
+
+function reader(arg, charset){
+  if (arg instanceof ByteBuffer){
+    io_reader(ByteBufferInputStream(arg), charset)
+  } else if (arg instanceof ReadableByteChannel){
+    Channels::newReader(arg, charset)
+  } else {
+    io_reader(arg, charset)
+  }
+}
+
+function writer(arg) io_writer(arg)
+
+function writer(arg, charset){
+  if (arg instanceof WritableByteChannel){
+    Channels::newWriter(WritableByteChannel, charset)
+  } else {
+    io_writer(arg, charset)
+  }
+}
+
+function openBuffer(arg) {
+  if (arg instanceof Number){
+    ByteBuffer::allocate(arg)
+  } else if (arg instanceof byte[]){
+    ByteBuffer::wrap(arg)
+  } else if (arg instanceof int[]){
+    IntBuffer::wrap(arg)
+  } else if (arg instanceof char[] || arg instanceof String){
+    CharBuffer::wrap(arg)
+  } else if (arg instanceof long[]){
+    LongBuffer::wrap(arg)
+  } else if (arg instanceof float[]){
+    FloatBuffer::wrap(arg)
+  } else if (arg instanceof double[]){
+    DoubleBuffer::wrap(arg)
+  } else {
+    throw ("error")
+  }
+}
+
+function openBuffer(type, capacity) {
+  if (type == int){
+    IntBuffer::allocate(capacity)
+  } else if (type == char){
+    CharBuffer::allocate(capacity)
+  } else if (type == short){
+    ShortBuffer::allocate(capacity)
+  } else if (type == float){
+    FloatBuffer::allocate(capacity)
+  } else if (type == double){
+    DoubleBuffer::allocate(capacity)
+  } else if (type == long){
+    LongBuffer::allocate(capacity)
+  } else if (type == byte){
+    ByteBuffer::allocate(capacity)
+  } else {
+    throw ("error")
+  }
+}
+
+function openDirectBuffer(capacity) {
+  ByteBuffer::allocateDirect(capacity)
+}
+
+function openDirectBuffer(type, capacity){
+  buf = ByteBuffer::allocateDirect(capacity)
+  if (type == byte){
+    buf
+  } else if (type == int){
+    buf.asIntBuffer()
+  } else if (type == char){
+    buf.asCharBuffer()
+  } else if (type == short){
+    buf.asShortBuffer()
+  } else if (type == float){
+    buf.asFloatBuffer()
+  } else if (type == double){
+    buf.asDoubleBuffer()
+  } else if (type == long){
+    buf.asLongBuffer()
+  } else {
+    throw ("error")
+  }
+}
+
+function openBuffer(arg, offset, len) {
+  if (arg instanceof byte[]){
+    ByteBuffer::wrap(arg, offset, len)
+  } else if (arg instanceof int[]){
+    IntBuffer::wrap(arg, offset, len)
+  } else if (arg instanceof char[]){
+    CharBuffer::wrap(arg, offset, len)
+  } else if (arg instanceof long[]){
+    LongBuffer::wrap(arg, offset, len)
+  } else if (arg instanceof float[]){
+    FloatBuffer::wrap(arg, offset, len)
+  } else if (arg instanceof double[]){
+    DoubleBuffer::wrap(arg, offset, len)
+  } else {
+    throw ("error")
+  }
+}
+
+function openChannel(src) {
+  if ((src instanceof String) || (src instanceof File)){
+     openChannel(src, "r")
+  } else if (src instanceof InputStream){
+     Channels::newChannel(src)
+  } else if (src instanceof OutputStream){
+     Channels::newChannel(src)
+  } else if (src instanceof SocketAddress){
+     SocketChannel::open(src)
+  } else {
+     throw("error")
+  }
+}
+
+function openChannel(src, mode){
+  if ((src instanceof String) || (src instanceof File)){
+     if (mode == "r"){
+       FileInputStream(src).getChannel()
+     } else if (mode == "w"){
+       FileOutputStream(src).getChannel()
+     } else {
+	throw("error")
+     }
+  } else {
+     throw("error")
+  }
+}
+
+function transferChannel(src_ch, dst_ch){
+  buf = openByteBuffer(512)
+  while (true){
+    buf.clear()
+    if (src_ch.read(buf) < 0) break
+    buf.flip()
+    dst_ch.write(buf)
+  }
+}
+
+function mapFile(file) mapFile(file, "r")
+
+function mapFile(file, mode){
+   file = getFile(file)
+   len = file.length()
+   if (mode == "r" || mode == "R"){
+      openChannel(file).map(FileChannel$MapMode::READ_ONLY, 0, len)
+   } else if (mode == "w" || mode == "W"){
+      openChannel(file).map(FileChannel$MapMode::READ_WRITER, 0, len)
+   } else {
+      throw("illegal map mode")
+   }
+}
+
+import("java.nio.charset.*")
+
+function charset(cs) {
+  try {
+    Charset::forName(cs)
+  } catch(UnsupportedCharsetException e) {
+    null
+  }
+}
+
+function charsets() Charset::availableCharsets()

@@ -1,0 +1,16 @@
+package("pnuts.awt")
+
+import(null)
+import("pnuts.awt.Layout")
+import("javax.swing.JFrame")
+
+function layout(c, fmt) {
+   if (defined("JFrame") && c instanceof JFrame){
+     c = c.getContentPane()
+   }
+   Layout::layout(c, fmt)
+}
+
+function layout(fmt){
+   Layout::layout(fmt)
+}

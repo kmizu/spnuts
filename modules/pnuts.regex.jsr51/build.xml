@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="pnuts.regex.jsr51" default="main" basedir=".">
+  <import file="../common.xml"/>
+  <property name="jar.file" value="pnuts-jsr51.jar"/>
+  <property name="build.classpath" value="../pnuts.lib/pnuts-lib.jar"/>
+</project>

@@ -1,0 +1,10 @@
+HOW TO BUILD PNUTS
+
+Build with Apache Ant
+-------------------------
+
+    * You will need JavaCC 3.2 or higher. 
+    * Edit build.properties and set ${javacc.home} to where you installed JavaCC.
+    * Make sure ant 1.6.X and j2sdk are installed.
+    * Run 'ant' command at the top directory
+    * The resulting files will be copied to ${install.dir}.

@@ -1,0 +1,86 @@
+package("pnuts.security")
+
+// Java Cryptography Extension is available at http://java.sun.com/products/jce/
+
+import("javax.crypto.*")
+import("javax.crypto.spec.*")
+import("java.security.*")
+import("java.io.*")
+
+function encrypt(passOrKey, input){
+   if (input instanceof byte[]){
+     input = open(input)
+   }
+   pipe((function (pk) function (input, output) encrypt(pk, input, output))(passOrKey), input)
+}
+
+function encrypt(passOrKey, input, output){
+  if (needToClose = !(input instanceof InputStream)){
+     input = open(input)
+  }
+  if (needToClose2 = !(output instanceof OutputStream)){
+     output = open(output, "w")
+  }
+  try {
+    read(CipherInputStream(input, getCipher(passOrKey, Cipher::ENCRYPT_MODE)), output)
+  } finally {
+    if (needToClose) input.close()
+    if (needToClose2) output.close()
+  }
+}
+
+function decrypt(passOrKey, input){
+   if (input instanceof byte[]){
+     input = open(input)
+   }
+   pipe((function (pk) function (input, output) decrypt(pk, input, output))(passOrKey), input)
+}
+
+function decrypt(passOrKey, input, output){
+  if (needToClose = !(input instanceof InputStream)){
+     input = open(input)
+  }
+  if (needToClose2 = !(output instanceof OutputStream)){
+     output = open(output, "w")
+  }
+  try {
+    read(CipherInputStream(input, getCipher(passOrKey, Cipher::DECRYPT_MODE)), output)
+  } finally {
+    if (needToClose) input.close()
+    if (needToClose2) output.close()
+  }
+}
+
+function getSecretKey(algorithm){
+  kg = KeyGenerator::getInstance(algorithm)
+  kg.init(SecureRandom())
+  kg.generateKey()
+}
+
+function sealObject(passOrKey, serializable){
+  c = getCipher(passOrKey, Cipher::ENCRYPT_MODE)
+  SealedObject(serializable, c)
+}
+
+function unsealObject(passOrKey, sealedObject){
+  c = getCipher(passOrKey, Cipher::DECRYPT_MODE)
+  sealedObject.getObject(c)
+}
+
+pbe_algorithm = "PBEWithMD5AndDES"
+
+function getCipher(passOrKey, mode){
+  if (passOrKey instanceof String){
+    key = SecretKeyFactory::getInstance(pbe_algorithm).generateSecret(PBEKeySpec(passOrKey.toCharArray())) 
+    hc = passOrKey.hashCode()
+    b = [(byte)((hc >> 24) & 255), (byte)((hc >> 16) & 255), (byte)((hc >> 8) & 255), (byte)(hc & 255)]
+    c = Cipher::getInstance(pbe_algorithm)
+    c.init(mode, key, PBEParameterSpec(b + b, 20))
+  } else if (passOrKey instanceof SecretKey){
+    c = Cipher::getInstance(passOrKey.getAlgorithm())
+    c.init(mode, passOrKey)
+  } else {
+    ERROR("invalid.cipher.key", passOrKey)
+  }
+  c
+}

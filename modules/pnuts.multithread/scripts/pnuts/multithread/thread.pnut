@@ -1,0 +1,17 @@
+package("pnuts.multithread")
+
+import("pnuts.multithread.Mutex")
+
+function sleep(msec) Thread::sleep(msec)
+
+function mutex() Mutex()
+
+function getPriority(){
+  return currentThread().getPriority()
+}
+
+function setPriority(prio){
+  return currentThread().setPriority(prio)
+}
+
+null

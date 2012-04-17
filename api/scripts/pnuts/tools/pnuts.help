@@ -1,0 +1,25 @@
+Usage: pnuts [options] [file ...]
+Options:
+  -help               Display this information
+  -version            Display the version information
+  -encoding enc       Specify the encoding of script files
+  -p                  Enable public member access
+  -a                  Enable non-public member access
+  -b                  Enable <bean>.<property> expression (default)
+  -w                  Use graphical console
+  -s		      Run in the secure sand-box
+  -v                  Verbose mode
+  -O                  Generate faster code
+  -pure               Don't compile to JVM bytecode
+  -d[:command_file]   Invoke the terminal debugger
+  -vd                 Invoke the visual debugger
+  -e expression       Execute the expression
+  -r resource         Load the resource and continue
+  -R resource         Load the resource and exit
+  -f file             Load the script file and continue
+  -F file             Load the script file and exit
+  -u URL              Load the script at the URL and continue
+  -U URL              Load the script at the URL and exit
+  -m module           Use the module
+  -J<jvm_option>      Pass <jvm_option> to java command.
+  -inputlog <logfile> Log user's input in an interactive session

@@ -1,0 +1,38 @@
+package("pnuts.security")
+
+import("java.security.*")
+
+function getPrivateKey(keystore, alias, pass){
+  keystore.getKey(alias, pass.toCharArray())
+}
+
+function getPublicKey(keystore, alias){
+  keystore.getCertificate(alias).getPublicKey()
+}
+
+function signObject(serializable, privateKey){
+  signature = Signature::getInstance(security_algorithm)
+  SignedObject(serializable, privateKey, signature)
+}
+
+function verifyObject(signedObject, publicKey){
+  if (!(signedObject instanceof SignedObject)){
+     false
+  } else {
+     signature = Signature::getInstance(security_algorithm)
+     signedObject.verify(publicKey, signature)
+  }
+}
+
+function getKeyStore(db, pass) {
+  ks = KeyStore::getInstance(security_keystoreType)
+  ks.load(open(db), pass.toCharArray())
+  ks
+}
+
+function getKeyStore(pass) {
+  getKeyStore(System::getProperty("user.home") + "/.keystore", pass)
+}
+
+security_algorithm = "DSA"
+security_keystoreType = "JKS"

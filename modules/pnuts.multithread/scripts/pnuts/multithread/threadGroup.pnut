@@ -1,0 +1,51 @@
+package("pnuts.multithread")
+
+function threadGroup() {
+  group = Thread::currentThread().getThreadGroup().getParent()
+  threadGroup$list(group, 0)  
+}
+
+function threadGroup$list(g, indent){
+
+  if (g == null){
+     break
+  }
+  buf = StringBuffer()
+  for (i = 0; i < indent; ++i){
+    buf.append(' ')
+  }
+  buf.append(g.toString())
+
+  print(buf)
+  println()
+
+  indent = indent + 4
+  count = g.activeCount()
+  gcount = g.activeGroupCount()
+  th = Thread[count]
+  tg = ThreadGroup[gcount]
+  g.enumerate(th, false)
+  g.enumerate(tg, false)
+  for (i = 0; i < count; ++i){
+    if (th[i] == null) {
+       break
+    }
+    buf = StringBuffer()
+    for (j = 0; j < indent; ++j){
+       buf.append(' ')
+    }
+    buf.append(th[i].toString())
+
+    if (th[i].isDaemon()){
+      buf.append(",daemon")
+    }
+    print(buf)
+    println()
+  }
+  for (i = 0; i < gcount; ++i){
+    if (tg[i] == null){
+       break
+    }
+    threadGroup$list(tg[i], indent)
+  }
+}

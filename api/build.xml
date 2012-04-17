@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="Pnuts" default="all" basedir=".">
+
+  <!-- You may need to set ${javacc.home}  -->
+  <property file="../build.properties"/>
+  <property file="build.properties"/>
+
+  <!-- Project Properties -->
+  <property name="jar.file" value="pnuts.jar"/>
+  <property name="build.classdir" value="classes"/>
+  <property name="generated.dir.1" value="generated"/>
+  <property name="generated.dir.2" value="generated/pass2"/>
+  <property name="src.dir" value="src"/>
+  <property name="src.dist" value="${install.dir}-src"/>
+  <property name="scripts.dir" value="scripts"/>
+  <property name="pnuts.license" value="../LICENSE.txt"/>
+
+  <target name="all" depends="default,lite"/>
+
+  <target name="default" depends="jarfile,install"/>
+
+  <target name="lite">
+    <ant antfile="build-lite.xml" inheritAll="false"/>
+  </target>
+
+  <target name="build.dirs">
+    <mkdir dir="${build.classdir}/META-INF"/>
+    <mkdir dir="${generated.dir.1}/pnuts/lang"/>
+    <mkdir dir="${generated.dir.2}/pnuts/lang"/>
+  </target>
+
+  <target name="jarfile" depends="parser,compile">
+     <tstamp>
+       <format property="build.number" pattern="yyyyMMddHHmmss" locale="en"/>
+     </tstamp>
+     <copy file="${pnuts.license}" todir="${build.classdir}/META-INF"/>
+     <jar jarfile="${jar.file}">
+       <manifest>
+         <attribute name="Specification-Title" value="${specification.title}"/>
+         <attribute name="Specification-Version" value="${specification.version}"/>
+         <attribute name="Specification-Vendor" value="${specification.vendor}"/>
+         <attribute name="Implementation-Title" value="${implementation.title}"/>
+         <attribute name="Implementation-Version" value="${build.number}"/>
+         <attribute name="Implementation-Vendor" value="${implementation.vendor}"/>
+       </manifest>
+       <fileset dir="${build.classdir}"/>
+       <fileset dir="${scripts.dir}"/>
+     </jar> 
+  </target>
+
+  <target name="grammar.check">
+    <uptodate property="grammar.modified"
+              srcfile="${src.dir}/pnuts/lang/Pnuts.jjt"
+              targetfile="${generated.dir.2}/pnuts/lang/PnutsParser.java" />
+  </target>
+
+  <target name="compile" depends="parser">
+
+    <javac srcdir="${src.dir}:${generated.dir.2}"
+           destdir="${build.classdir}"
+           classpath="${build.classdir}"
+           sourcepath="${src.dir}:${generated.dir.2}"
+           target="${javac.target}"
+           source="${javac.source}"
+           compiler="${javac.compiler}"
+           debug="${javac.debug}"
+           verbose="${javac.verbose}"
+           deprecation="${javac.deprecation}"
+           optimize="${javac.optimize}"/>
+  </target>
+
+  <target name="parser.setup" depends="build.dirs,grammar.check" unless="grammar.modified">
+    <jjtree target="${src.dir}/pnuts/lang/Pnuts.jjt"
+            outputdirectory="${generated.dir.1}/pnuts/lang"
+	    javacchome="${javacc.home}" 
+	    nodeusesparser="false" />
+    <javacc target="${generated.dir.1}/pnuts/lang/Pnuts.jj"
+            outputdirectory="${generated.dir.1}/pnuts/lang"
+	    javacchome="${javacc.home}" />
+  </target>
+
+  <target name="parser" depends="parser.setup" unless="grammar.modified">
+    <copy todir="${generated.dir.2}">
+      <fileset dir="${generated.dir.1}">
+        <present present="srconly" targetdir="${src.dir}"/>
+        <exclude name="pnuts/lang/Node.java"/>
+        <include name="pnuts/lang/*.java"/>
+      </fileset>
+    </copy>
+  </target>
+
+  <target name="install">
+    <mkdir dir="${install.dir}/lib"/>
+    <copy todir="${install.dir}/lib">
+      <fileset file="pnuts.jar"/>
+    </copy>
+  </target>
+
+  <target name="src.dist">
+    <mkdir dir="${src.dist}/api"/>
+    <copy file="build.xml" todir="${src.dist}/api"/>
+    <copy file="build.properties" todir="${src.dist}/api"/>
+    <copy file="build-lite.xml" todir="${src.dist}/api"/>
+    <copy file="build.properties.lite" todir="${src.dist}/api"/>
+    <copy file="pnuts-lite.list" todir="${src.dist}/api"/>
+    <copy todir="${src.dist}/api" >
+      <fileset dir="." >
+        <include name="src/**"/>
+        <include name="src.lite/**"/>
+        <include name="scripts/**"/>
+        <exclude name="**/SCCS"/>
+        <exclude name="**/BitKeeper"/>
+      </fileset>
+    </copy>
+  </target>
+
+  <target name="apidoc">
+    <mkdir dir="${javadoc.dir}"/>
+    <javadoc Locale="${javadoc.locale}"
+             encoding="${javadoc.encoding}"
+             destdir="${javadoc.dir}"
+             classpath="pnuts.jar"
+             sourcepath="${javadoc.sourcepath}"
+             packagenames="${javadoc.packages}"
+             windowtitle="Pnuts API">
+      <sourcepath>
+        <dirset dir=".">
+          <include name="src"/>
+        </dirset>
+      </sourcepath>
+    </javadoc>
+  </target>
+
+  <target name="clean.default">
+    <delete dir="${build.classdir}"/>
+    <delete dir="${generated.dir.2}"/>
+    <delete dir="${generated.dir.1}"/>
+    <delete file="${jar.file}"/>
+    <delete dir="${javadoc.dir}"/>
+  </target>
+
+  <target name="clean" depends="clean.default">
+    <ant antfile="build-lite.xml" target="clean" inheritAll="false"/>
+  </target>
+
+</project>

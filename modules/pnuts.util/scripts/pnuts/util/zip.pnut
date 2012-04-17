@@ -1,0 +1,213 @@
+package("pnuts.util")
+
+import("java.util.zip.*")
+import("java.util.jar.JarFile")
+import("java.net.JarURLConnection")
+import("java.util.Date")
+import("java.net.URL")
+import("java.io.*")
+
+function openZip(stream){
+  if (stream instanceof InputStream){
+    ZipInputStream(stream)
+  } else if (stream instanceof OutputStream){
+    ZipOutputStream(stream)
+  } else if (stream instanceof String){
+    ZipInputStream(open(stream))
+  } else {
+    throw("illegal arguments: " + stream)
+  }
+}
+function openZip(file, mode){
+  if (file instanceof String || file instanceof java.io.File){
+    switch (mode){
+      case "r":
+	ZipInputStream(open(file))
+      case "w":
+	ZipOutputStream(open(file, "w"))
+    }  
+  } else {
+    throw ("illegal argument: " + file +  ", " + mode)
+  }
+}
+
+function writeZip(zout, entry, streamHandler){
+   if (entry instanceof String) entry = ZipEntry(entry)
+   zout.putNextEntry(entry)
+   streamHandler(zout)
+   zout.closeEntry()
+}
+
+function addEntry(zout, entry, handler){
+   zout.putNextEntry(entry)
+   handler(zout)
+   zout.closeEntry()
+}
+
+function writeZipEntries(out, gen){
+  if (!(out instanceof OutputStream)){
+     toclose = out = open(out, "w")
+  }
+  if (out instanceof ZipOutputStream){
+     zout = out
+  } else {
+     zout = ZipOutputStream(out)
+  }
+  for (e : gen){
+    entry = ZipEntry(e.entry.name)
+    entry.time = e.entry.time
+    addEntry(zout, entry, function (out) read(e.input, zout))
+  }
+  zout.finish()
+  if (toclose != null) toclose.close()
+}
+
+function fileEntries(files, prefix){
+    for (i : files){
+      f = File(prefix + i)
+      yield {"entry"=>{"name"=>f.name, "time"=>f.lastModified()},
+             "input"=>isDirectory(f) ? null : f}
+      if (isDirectory(f)){
+        for (j : fileEntries(f.list(), prefix + i)) yield j
+      }
+    }
+}
+
+function writeZip(out, files){
+  writeZipEntries(out, fileEntries(files, ""))
+}
+
+
+function readZipEntries(in){
+  if (in instanceof URL){
+    conn = in.openConnection()
+    if (conn instanceof JarURLConnection) in = conn.jarFile
+  }
+
+  if (in instanceof JarFile){
+     for (e: in.entries()) yield {"entry"=>e, "input"=>in.getInputStream(e)}
+  } else {
+     if (!(in instanceof InputStream)){
+       toclose = in = open(in)
+     }
+     if (!(in instanceof ZipInputStream)){
+       in = ZipInputStream(in)
+     }
+     while ((e = in.nextEntry) != null){
+       yield {"entry"=>e, "input"=>in}
+     }
+     if (toclose != null) toclose.close()
+  }
+}
+
+function readZip(in){
+  sp = char[38]
+  for (e: readZipEntries(in)){
+    read(e.input, null)
+    entry = e.entry
+    s = entry.size
+    time = entry.time
+    name = entry.name
+    sp[0..] = ' '
+    sz = string(s)
+    sp[8 - size(sz)..] = sz
+    d = Date()
+    d.time = time
+    sp[9..] = string(d)
+    write(sp)
+    println(name)
+  }
+}
+
+function readZip(in, entryHandler){
+  for (e: readZipEntries(in)) {
+    entryHandler(e.entry, e.input)
+  }
+}
+
+function extractZip(in, output) extractZip(in, output, null)
+
+function extractZip(in, output, which){
+  if (which == null){
+    entries = readZipEntries(in)
+  } else if (which instanceof String){
+    entries = filter(readZipEntries(in),
+                     function (e) which == e.entry.name)
+  } else {
+    entries = filter(readZipEntries(in), function (e) which(e.entry.name))
+  }
+  if ((output instanceof String || output instanceof File) && isDirectory(output)){
+    for (e : entries) {
+       parent = getFile(e.entry.name).parent
+       if (!exists(parent)) mkdir(parent)
+       read(e.input, e.entry.name)
+    }
+  } else if (output instanceof Writer || output instanceof OutputStream){
+    for (e : entries) read(e.input, output)
+  } else {
+    writeZipEntries(output, entries)
+  }
+}
+
+function updateZip(zipfile, entryName, replacement){
+  zout = ZipOutputStream(bout = ByteArrayOutputStream())
+  if (replacement instanceof String){
+    streamHandler = function (zout) read(replacement, zout)
+  } else if (isFunction(replacement, 1)){
+    streamHandler = replacement
+  } else {
+    throw("illegal arguments: " + replacement)
+  }
+  match = false
+  readZip(zipfile, function (e, in){
+           if (e.name == entryName){
+             if (streamHandler != null){
+               zout.putNextEntry(ZipEntry(entryName))
+	         streamHandler(zout)
+             }
+             match = true
+           } else {
+             zout.putNextEntry(e)
+	       read(in, zout)
+           }
+           zout.closeEntry()
+         })
+  if (!match && streamHandler != null){
+    zout.putNextEntry(ZipEntry(entryName))
+    streamHandler(zout)
+    zout.closeEntry()
+  }
+  zout.finish()
+  out = open(zipfile, "w")
+  bout.writeTo(out)
+  out.close()
+}
+
+function mergeZip(files, output){
+  if (output instanceof String){
+    toclose = output = open(output, "w")
+  }
+  if (output instanceof OutputStream){
+     if (!(output instanceof ZipOutputStream)) toclose = output = openZip(output)
+  } else {
+     throw("illegal arguments: " + output)
+  }
+  s = set()
+  time = currentTimeMillis()
+  for (i : files){
+    readZip(i, function (e, in){
+       name = e.name
+       if (!contains(s, name)){
+         s.add(name)
+         entry = ZipEntry(name)
+         entry.time = time
+         writeZip(output, entry, function (zout) read(in, zout))
+       }
+     })
+  }
+  output.finish()
+  if (toclose != null){
+    toclose.close()
+  }
+  null
+}

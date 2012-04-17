@@ -1,0 +1,157 @@
+package("pnuts.awt")
+
+use("pnuts.beans")
+
+import(null)
+import("java.lang.Character")
+import("java.awt.Menu")
+import("java.awt.Event")
+import("java.awt.MenuBar")
+import("java.awt.MenuItem")
+import("java.awt.MenuShortcut")
+import("javax.swing.*")
+if (defined("JFrame")){
+  import("javax.swing.JMenu")
+  import("javax.swing.JMenuItem")
+  import("javax.swing.JMenuBar")
+  import("javax.swing.KeyStroke")
+}
+
+function makeMenu (bundle, format, swing){
+
+  Menu = swing ? JMenu : Menu
+  MenuItem = swing ? JMenuItem : MenuItem
+
+  function getLabel(key){
+     if (bundle != null){
+       n = formatMessage(bundle, key)
+       if (n == null) key else n
+     } else {
+       key
+     }
+  }
+
+  function makeMenuItem(format){
+    if (format[0] != "-" && bundle != null){
+      item = MenuItem(getLabel(format[0]))
+    } else {
+      item = MenuItem(format[0])
+    }
+    if (format.length > 2){
+      if (swing){
+        if (format[2] instanceof Character){
+          item.setAccelerator(KeyStroke::getKeyStroke(
+		Character::toUpperCase(format[2]),
+		Event::CTRL_MASK, true))
+        } else if (defined("KeyStroke") && format[2] instanceof KeyStroke){
+          item.setAccelerator(format[2])
+        }
+      } else {
+        item.setShortcut(MenuShortcut(format[2]))
+      }
+    }
+    bind(item, "actionPerformed", format[1])
+    return item
+  }
+
+  if (isFunction(format[1])){
+    return makeMenuItem(format)
+  } else {
+    if (format[0].endsWith("|")){
+      m = format[0].substring(0, format[0].length() - 1)
+      tear = true
+    } else {
+      m = format[0]
+      tear = false
+    }
+    if (bundle != null){
+      menu = Menu(getLabel(m))
+    } else {
+      menu = Menu(m, tear)
+    }
+    for (i = 1; i < format.length; ++i){
+    	if (format[i] == null) {
+    		menu.addSeparator()
+      } else if (isArray(format[i])){
+         menu.add(makeMenu(bundle, format[i], swing))
+      } else {
+         menu.add(makeMenuItem(format[i]))
+      }
+    }
+    return menu
+  }
+}
+
+function makeMenuBar (bundle, format, swing){
+
+  MenuBar = swing ? JMenuBar : MenuBar
+
+  function makeMenuBar (format){
+    mbar = MenuBar()
+    foreach i (format){
+       mbar.add(makeMenu(bundle, i, swing))
+    }
+    return mbar
+  }
+  
+  makeMenuBar(format)
+}
+
+function menubar (format) makeMenuBar(null, format, false)
+function menubar (frame, format) menubar(frame, null, format)
+function menu (format)    makeMenu(null, format, false)
+function menu (bundle, format)    makeMenu(bundle, format, false)
+
+function menubar (frame, bundle, format){
+  swing = defined("JFrame") && (frame instanceof JFrame)
+  mbar = makeMenuBar(bundle, format, swing)
+  if (swing){
+    frame.setJMenuBar(mbar)
+  } else {
+    frame.setMenuBar(mbar)
+  }
+  frame.validate()
+  mbar
+}
+
+function getMenuItem(mb, list) getMenuItem(mb, null, list)
+
+function getMenuItem(mb, bundle, list){
+  menu = null
+  if (bundle != null){
+    list_0 = formatMessage(bundle, list[0])
+  } else {
+    list_0 = list[0]
+  }
+  for (i = 0; i < mb.getMenuCount(); ++i){
+    menu = mb.getMenu(i)
+    if (menu.getLabel() == list_0){
+      break
+    }
+    menu = null
+  }
+  if (menu == null) return null
+  list = list[1..]
+
+  item = null
+  for (j = 0; j < list.length; ++j){
+    if (!(menu instanceof Menu || menu instanceof JMenu)) return null
+
+    if (bundle != null){
+      list_j = formatMessage(bundle, list[j])
+    } else {
+      list_j = list[j]
+    }
+
+    for (i = 0; i < menu.getItemCount(); ++i){
+      item = menu.getItem(i)
+      if (item.getLabel() == list_j){
+        menu = item
+        break
+      }
+      item = null
+    }
+    if (item == null) return null
+  }
+  return item
+}

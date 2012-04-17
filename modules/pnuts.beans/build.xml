@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="pnuts.beans" default="main" basedir=".">
+  <import file="../common.xml"/>
+  <property name="jar.file" value="pnuts-beans.jar"/>
+  <property name="build.classpath" value="../pnuts.lib/pnuts-lib.jar"/>
+</project>

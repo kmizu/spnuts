@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<module resource-bundle="properties.jar">
+    <module-name>Pnuts standard modules</module-name>
+    <module-version>1.1</module-version>
+    <pnuts-version>1.1</pnuts-version>
+    <java-version>1.2+</java-version>
+
+    <category>
+      <keyword>standard</keyword>
+    </category>
+
+    <description>${description}</description>
+    <document-url>${document.url}</document-url>
+    <reference-url>${reference.url}</reference-url>
+
+    <sub-module>
+      <module-name>java.net</module-name>
+      <module-name>java.io</module-name>
+      <module-name>java.util</module-name>
+      <module-name>pnuts.lib</module-name>
+      <module-name>pnuts.io</module-name>
+      <module-name>pnuts.util</module-name>
+      <module-name>pnuts.beans</module-name>
+      <module-name>pnuts.mail</module-name>
+      <module-name>pnuts.awt</module-name>
+      <module-name>pnuts.multithread</module-name>
+      <module-name>pnuts.text</module-name>
+      <module-name>pnuts.xml</module-name>
+      <module-name>pnuts.jdbc</module-name>
+      <module-name>pnuts.jdo</module-name>
+      <module-name>pnuts.security</module-name>
+      <module-name>pnuts.nio</module-name>
+      <module-name>pnuts.servlet</module-name>
+    </sub-module>
+
+    <resource>
+      <name>${resource.name.1}</name>
+      <license>
+        <license-name>Sun Public License</license-name>
+        <license-url>/licenses/SPL-1.0.txt</license-url>
+      </license>
+      <jar-file>pnuts-modules.jar</jar-file>
+    </resource>
+
+    <author>
+      <name>Toyokazu Tomatsu</name>
+    </author>
+
+    <contact>
+      <email>tomatsu@pnuts.org</email>
+    </contact>
+</module>

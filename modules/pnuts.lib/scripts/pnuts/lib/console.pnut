@@ -1,0 +1,16 @@
+package("pnuts.lib")
+
+function getWriter() getContext().getWriter()
+function getErrorWriter() getContext().getErrorWriter()
+
+function error(msg) error(msg, getContext())
+
+import("pnuts.lang.Runtime")
+import("pnuts.lang.PnutsException")
+
+function error(err, context) {
+  if (!(err instanceof Throwable)){
+    err = PnutsException(string(err), context)
+  }
+  Runtime::printError(err, context)
+}

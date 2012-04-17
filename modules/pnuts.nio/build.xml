@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="pnuts.nio" default="main" basedir=".">
+  <import file="../common.xml"/>
+  <property name="jar.file" value="pnuts-nio.jar"/>
+  <property name="build.classpath" value="../pnuts.text/pnuts-text.jar:../pnuts.lib/pnuts-lib.jar:../pnuts.io/pnuts-io.jar"/>
+</project>

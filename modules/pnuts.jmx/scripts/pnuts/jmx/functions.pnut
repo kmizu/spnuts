@@ -1,0 +1,84 @@
+package("pnuts.jmx")
+
+import sun.tools.jconsole.*
+import javax.management.remote.*
+import java.lang.management.*
+import javax.management.*
+import org.pnuts.jmx.MBeanAdapter
+import org.pnuts.jmx.DynamicMBeanFactory
+
+java_home = System.getProperty("java.home")
+addClassPath(getFile(java_home, "../lib/tools.jar"))
+addClassPath(getFile(java_home, "../lib/jconsole.jar"))
+
+function objectName(name){
+   (name instanceof ObjectName) ? name : ObjectName(name)
+}
+
+function mbeanConnection() mbeanConnection(null)
+function mbeanConnection(arg){
+  if (arg == null){
+     mbs = ManagementFactory.getPlatformMBeanServer()
+  } else if (arg instanceof MBeanServerConnection){
+     mbs = arg
+  } else {
+    if (arg instanceof Integer){
+      vm = LocalVirtualMachine.getAllVirtualMachines()[arg]
+      if (vm == null) return null
+      vm.startManagementAgent()
+      url = JMXServiceURL(vm.connectorAddress())
+    } else if (arg instanceof String){
+      url = JMXServiceURL(arg)
+    } else if (arg instanceof JMXServiceURL){
+      url = arg
+    }
+    if (url == null) return
+    con = JMXConnectorFactory.newJMXConnector(url, null)
+    con.connect()
+    mbs = con.MBeanServerConnection
+  }
+  r = $()
+  r.mbeanServerConnection = mbs
+  r.mbean = function (name)  new MBeanAdapter(mbs, name)
+  r.mbeanInfo = function (name)  MBeanAdapter.getMBeanInfo(mbs, name)
+  r.queryNames = function () project(mbs.queryNames(null, null),string)
+  r.print = function () print(mbs)
+  r.addNotificationListener = function (name, callback){
+      mbs.addNotificationListener(objectName(name),
+                 new NotificationListener(){ handleNotification(n,h){ call(callback, [n, h])}}, null, null)
+  }
+  r
+}
+
+function mbeanServer(){
+  mbs = MBeanServerFactory.createMBeanServer()
+  server = null
+  r = $()
+  r.mbeanServer = mbs
+  r.mbean = function (name)  new MBeanAdapter(mbs, name)
+  r.mbeanInfo = function (name)  MBeanAdapter.getMBeanInfo(mbs, name)
+  r.queryNames = function () project(mbs.queryNames(null, null),string)
+  r.print = function () print(mbs)
+  r.addNotificationListener = function (name, callback){
+      mbs.addNotificationListener(objectName(name),
+                 new NotificationListener(){ handleNotification(n,h){ call(callback, [n, h])}}, null, null)
+  }
+  r.registerMBean = function (obj, name) mbs.registerMBean(obj, objectName(name))
+  r.unregisterMBean = function (name) mbs.unregisterMBean(objectName(name))
+  r.startService = function (){
+     url = new JMXServiceURL("service:jmx:rmi://")
+     server = JMXConnectorServerFactory.newJMXConnectorServer(url, null, mbs)
+     server.start()
+     server.address
+  }
+  r.stopService = function () server.stop()
+  r
+}
+
+function dynamicMBean(_map) dynamicMBean(_map, null) 
+function dynamicMBean(_map, monitored){
+  if (_map instanceof pnuts.lang.Package){
+    _map = map(_map)
+  }
+  DynamicMBeanFactory.create(_map, set(monitored), getContext())
+}

@@ -1,0 +1,74 @@
+package("pnuts.awt")
+
+import(null)
+import("java.awt.Frame")
+import("java.awt.Dialog")
+import("java.awt.Color")
+import("java.awt.Point")
+import("javax.swing.JFrame")
+
+bgcolor=Color::lightGray
+width=200
+height=200
+
+function frame() frame("")
+
+function frame (title){
+  frame(title, width, height)
+}
+
+getDefaultWindowCloseOperation = function (){
+  if (boolean(getContext().get("pnuts.tools.hotstart".intern()))){
+    function (e) e.getSource().dispose()
+  } else {
+    function (e) {
+      if (isJava2() &&
+         size(list(filter(Frame::getFrames(), function (x) x.isVisible()))) <= 1){
+        exit(0)
+      } else {
+        e.getSource().dispose()
+      }
+    }
+  }
+}
+
+function setWindowCloseOperation(func){
+ getContext().pnuts$awt$defaultWindowCloseOperation = func
+}
+
+function getWindowCloseOperation(){
+  operation = getContext().pnuts$awt$defaultWindowCloseOperation
+  if (operation == null){
+    getDefaultWindowCloseOperation()
+  } else {
+    operation
+  }
+}
+
+function frame (title, w, h){
+  f = Frame(title)
+  bind(f, "windowClosing", getWindowCloseOperation())
+
+  f.setSize(w, h)
+  f.setBackground(bgcolor)
+  f
+}
+
+function dialog (f, title){
+  dialog(f, title, width, height)
+}
+
+function dialog (f, title, w, h){
+  d = Dialog(f, title)
+  d.setSize(w, h)
+  bind(d, "windowClosing", getWindowCloseOperation())
+  d.setBackground(bgcolor)
+  return d
+}
+
+function centerPosition(parent, child){
+ x = parent.getLocation().x + (parent.getSize().width - child.getSize().width) / 2
+ y = parent.getLocation().y + (parent.getSize().height - child.getSize().height) / 2
+ Point(int(x), int(y))
+}
+

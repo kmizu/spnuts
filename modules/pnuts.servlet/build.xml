@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="pnuts.servlet" default="main" basedir=".">
+  <import file="../common.xml"/>
+  <property name="jar.file" value="pnuts-servlet.jar"/>
+  <property name="build.classpath" value="../pnuts.lib/pnuts-lib.jar:../pnuts.net/pnuts-net.jar:../lib/servlet.jar"/>
+</project>

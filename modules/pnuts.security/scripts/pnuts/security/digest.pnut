@@ -1,0 +1,6 @@
+package("pnuts.security")
+
+import("pnuts.security.MD")
+
+md5 = MD("md5", "MD5")
+sha = MD("sha", "SHA")

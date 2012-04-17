@@ -1,0 +1,62 @@
+package("pnuts.util")
+
+import java.util.jar.Pack200
+import java.util.jar.Pack200.*
+import java.util.jar.*
+import java.io.*
+
+function pack200(input, output) pack200(input, output, null)
+
+function pack200(input, output, properties){
+  packer = Pack200.newPacker()
+  if (properties != null){
+    packer.properties().putAll(properties)
+  }
+  if (input instanceof File || input instanceof String){
+    in = JarFile(getFile(input))
+  } else if (input instanceof InputStream){
+    in = JarInputStream(input)
+  } else {
+    throw IllegalArgumentException()
+  }
+  if (output instanceof File || output instanceof String){
+     toclose = out = open(output, "w")
+  } else {
+     out = output
+  }
+  try {
+    packer.pack(in, out)
+  } finally {
+    if (toclose != null) try { toclose.close() } catch (Exception e){}
+  }
+}
+
+function unpack200(input, output) unpack200(input, output, null)
+
+function unpack200(input, output, properties){
+  unpacker = Pack200.newUnpacker()
+  if (properties != null){
+    unpacker.properties().putAll(properties)
+  }
+  if (input instanceof File || input instanceof String){
+    in = getFile(input)
+  } else if (input instanceof InputStream){
+    in = input
+  } else {
+    throw IllegalArgumentException()
+  }
+  if (output instanceof File || output instanceof String){
+     toclose = out = JarOutputStream(open(output, "w"))
+  } else if (output instanceof JarOutputStream){
+     out = output
+  } else if (output instanceof OutputStream){
+     out = JarOutputStream(output)
+  } else {
+    throw IllegalArgumentException()
+  }
+  try {
+    unpacker.unpack(in, out)
+  } finally {
+    if (toclose != null) try { toclose.close() } catch (Exception e){}
+  }
+}

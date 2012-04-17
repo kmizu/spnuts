@@ -1,0 +1,40 @@
+package("pnuts.awt")
+
+import java.awt.*
+import java.awt.datatransfer.*
+
+function getClipboard() {
+ t = getToolkit().systemClipboard.getContents(null)
+ try {
+  if (t != null){
+    if (t.isDataFlavorSupported(DataFlavor.stringFlavor)) {
+      return t.getTransferData(DataFlavor.stringFlavor)
+    } else if (t.isDataFlavorSupported(DataFlavor.imageFlavor)) {
+      return t.getTransferData(DataFlavor.imageFlavor)
+    }
+  }
+ } catch (UnsupportedFlavorException e) {
+ } catch (IOException e) {
+ }
+ null
+}
+    
+function setClipboard(obj) setClipboard(obj, null) 
+function setClipboard(obj, owner) {
+  clipboard = getToolkit().systemClipboard
+  if (obj instanceof String){
+    clipboard.setContents(StringSelection(obj), owner)
+  } else if (obj instanceof Image){
+    imgSel = new Transferable(){
+       getTransferDataFlavors() {(DataFlavor[])[DataFlavor.imageFlavor]}
+       isDataFlavorSupported(flavor) { DataFlavor.imageFlavor == flavor }
+       getTransferData(flavor){
+         if (DataFlavor.imageFlavor != flavor) {
+            throw(UnsupportedFlavorException(flavor))
+         }
+         obj
+       }
+    }
+    clipboard.setContents(imgSel, owner)
+  }
+}

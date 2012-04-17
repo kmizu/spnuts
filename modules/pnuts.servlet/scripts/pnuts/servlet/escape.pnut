@@ -1,0 +1,19 @@
+package("pnuts.servlet")
+
+use("pnuts.regex")
+
+e_amp = regex("&amp;")
+e_lt = regex("&lt;")
+e_gt = regex("&gt;")
+e_quot = regex("&quot;")
+e_apos = regex("&#39;")
+
+function unescape(t){
+   if (t != null){
+     t = substitute(e_amp, "&", t, "gn")
+     t = substitute(e_lt, "<", t, "gn")
+     t = substitute(e_gt, ">", t, "gn")
+     t = substitute(e_quot, "\"", t, "gn")
+     t = substitute(e_apos, "'", t, "gn")
+  }
+}

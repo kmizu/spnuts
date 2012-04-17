@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<project name="Pnuts" default="all" basedir=".">
+
+  <property file="build.properties"/>
+  <property name="dist" value="${install.dir}"/>
+
+  <target name="all" depends="api,modules,launcher">
+    <copy file="LICENSE.txt" todir="${dist}"/>
+    <copy file="CHANGES.html" todir="${dist}"/>
+  </target>
+
+  <target name="api">
+    <ant dir="api" inheritAll="false"/>
+  </target>
+
+  <target name="modules">
+    <ant dir="modules" inheritAll="false"/>
+  </target>
+
+  <target name="extensions">
+    <ant dir="${extensions}" inheritAll="false"/>
+  </target>
+
+  <target name="launcher">
+    <ant dir="launcher" inheritAll="false"/>
+  </target>
+  
+  <target name="apidoc">
+    <ant dir="api" target="apidoc" inheritAll="false"/>
+  </target>
+   
+  <target name="run">
+    <java classname="pnuts.tools.Main" fork="true">  
+     <classpath>
+       <pathelement location="api/pnuts.jar"/>
+       <pathelement location="modules/pnuts-modules.jar"/>
+     </classpath>
+     <arg value="-w"/>
+     <arg value="-m"/>
+     <arg value="pnuts.tools"/>
+    </java>
+  </target>
+  
+  <target name="clean" depends="clean.api,clean.modules"/>
+
+  <target name="clean.api">
+    <ant dir="api" target="clean" inheritAll="false"/>
+  </target>
+
+  <target name="clean.modules">
+    <ant dir="modules" target="clean" inheritAll="false"/>
+  </target>
+
+<!-- Eclipse support -->
+
+  <property name="eclipse.support.url" value="http://pnuts.org/1.1/eclipse-support.zip"/>
+  <property name="eclipse.support.local" value="${java.io.tmpdir}/eclipse-support.zip"/>
+
+  <target name="prepare-proxy" if="proxy.host">
+    <!-- if you need proxy to access ftp site, try following: -->
+    <!--  $ ant -Dproxy.host=proxy.com -Dproxy.port=8080 -->
+    <setproxy proxyhost="${proxy.host}" proxyport="${proxy.port}" />
+  </target>
+
+  <target name="eclipse" depends="prepare-proxy">
+    <get src="${eclipse.support.url}" dest="${eclipse.support.local}"/>
+    <unzip src="${eclipse.support.local}" dest="."/>
+    <delete file="${eclipse.support.local}"/>
+  </target>
+
+</project>

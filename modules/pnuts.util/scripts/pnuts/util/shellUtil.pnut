@@ -1,0 +1,126 @@
+package("pnuts.util")
+
+use("pnuts.lib")
+use("pnuts.regex")
+
+import("java.io.File")
+
+p0 = regex(`[/\\]`)
+p1 = regex(`[/\\]$`)
+p2 = regex(`^[/\\]`)
+if (isJava2()){
+  roots = File::listRoots()
+} else {
+  roots = ["/"]
+}
+
+function shellExpand(pattern){
+  vec = vector()
+  isdir = false
+  if (match(p1, pattern)){
+     e = getMatchEnd(0)
+     if (e > 1){
+       for (r : roots){
+         if (r.path == pattern) return [r.path]
+       }
+       pattern = pattern[0..getMatchEnd(0) - 2];
+       isdir = true
+     } else {
+       return ["/"]
+     }
+  }
+  if (match(p0, pattern)){
+    s = getMatchStart(0)
+    e = getMatchEnd(0)
+    prefix = pattern[0..s]
+    abs = false
+    foreach i (roots){
+      if (i.path == prefix) abs = true
+    }
+    if (prefix.indexOf('*') >= 0){
+      for (d : shellExpand(prefix[0..size(prefix)-2], null, true)){
+        shellExpand(pattern[e..], d, vec, isdir)
+      }
+    } else {
+      shellExpand(pattern[e..], prefix, vec, isdir)
+    }
+  } else {
+    shellExpand(pattern, null, vec, isdir)
+  }
+  a = Object[vec.size()]
+  vec.copyInto(a)
+  a
+}
+
+function shellExpand(pattern, dir, vec, isdir){
+  if (match(p0, pattern)){
+    idx = getMatchStart(0)
+    p1 = pattern[0..idx - 1]
+    p = pattern[idx + 1..]
+    if (p1.indexOf('*') >= 0){
+      foreach d (shellExpand(p1, dir, isdir)){
+        shellExpand(p, d, vec, isdir)
+      }
+    } else {
+      if (dir != null){
+        shellExpand(p, dir + "/" + p1, vec, isdir)
+      } else {
+        shellExpand(p, p1, vec, isdir)
+      }
+    }
+  } else {
+    foreach i (shellExpand(pattern, dir, isdir)) {
+       vec.addElement(i)
+    }
+  }
+}
+
+function shellExpand(pattern, dir, isdir){
+  if (pattern == "."){
+    if (dir != null){
+      f = File(dir)
+      if (exists(f)) [dir] else []
+    } else {
+      ["."]
+    }
+  } else if (pattern == ".."){
+    if (dir != null){
+      f = File(dir + "/..")
+      if (exists(f)) [dir + "/.."] else []
+    } else {
+      [".."]
+    }
+  } else {
+    pattern = filePattern(pattern)
+    vec = vector()
+    if (dir == null){
+      foreach i (getFile(".").list()){
+        if (match(pattern, i)){
+          f = getFile(i)
+          if (!isdir || f.directory){
+            vec.addElement(i)
+          }
+        }
+      }
+    } else {
+      foreach i (getFile(dir).list()){
+        if (match(pattern, i)){
+          f = File(dir + "/" + i)
+          if (!isdir || f.directory){
+            vec.addElement(dir + "/" + i)
+          }
+        }
+      }
+    }
+    a = Object[vec.size()]
+    vec.copyInto(a)
+    a
+  }
+}
+
+
+function filePattern(regexp){
+  pattern = substitute(`\.`, `\.`, regexp, "gn")
+  pattern = substitute(`\*`, `.*`, pattern, "g")
+  "^" + pattern + "$"
+}

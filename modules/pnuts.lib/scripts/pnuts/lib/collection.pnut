@@ -1,0 +1,9 @@
+package("pnuts.lib")
+
+import("java.util.*")
+
+function hashTable() Hashtable()
+function hashTable(args) map(args, "HT")
+
+function vector() Vector()
+function vector(args) list(args, "V")

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <property file="../build.properties"/>
+  <property file="../../deploy.properties"/>
+
+  <property name="build.classdir" value="classes"/>
+  <property name="scripts.dir" value="scripts"/>
+  <property name="src.dir" value="src"/>
+  <property name="pnuts.license" value="../../LICENSE.txt"/>
+  <property name="pnuts.jar" value="../../api/pnuts.jar"/>
+
+  <target name="main" depends="compile,jarfile"/>
+
+  <target name="compile">
+    <mkdir dir="${build.classdir}"/>
+    <javac srcdir="${src.dir}"
+           destdir="${build.classdir}"
+           classpath="${pnuts.jar}:${build.classpath}:${build.classdir}"
+           target="${javac.target}"
+           source="${javac.source}"
+           compiler="${javac.compiler}"
+           debug="${javac.debug}"
+           verbose="${javac.verbose}"
+           deprecation="${javac.deprecation}"
+           optimize="${javac.optimize}"/>
+  </target>
+
+  <target name="jarfile">
+    <zip destfile="${jar.file}"
+         update="false"
+         filesonly="${zip.filesonly}">
+      <fileset dir="${scripts.dir}" excludes="**/SCCS"/>
+      <fileset dir="${build.classdir}"/>
+    </zip>
+  </target>
+
+  <target name="clean">
+    <delete dir="${build.classdir}"/>
+    <delete file="${jar.file}"/>
+  </target>
+
+  <target name="deploy">
+    <mkdir dir="${deploy.dir}/modules/${ant.project.name}"/>
+    <copy todir="${deploy.dir}/modules/${ant.project.name}/doc">
+      <fileset dir="doc"/>
+    </copy>
+    <copy todir="${deploy.dir}/modules/${ant.project.name}/doc.ja">
+      <fileset dir="doc.ja"/>
+    </copy>
+  </target>
+
+
+</project>

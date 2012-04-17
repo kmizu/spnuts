@@ -1,0 +1,30 @@
+package("pnuts.net")
+
+import("java.net.*")
+
+if (defined("NetworkInterface")){  // j2sdk1.4.X
+  networkInterfaces = null
+
+  function isLocalHost(hostOrAddr){
+    try {
+      addr = getInetAddress(hostOrAddr)
+      if (networkInterfaces == null){
+        ni = networkInterfaces = NetworkInterface::getNetworkInterfaces()
+      }
+      foreach a (ni){
+        foreach b (a.inetAddresses) if (b == addr) return true
+      }
+      false
+    } catch (UnknownHostException e) {
+      return false
+    }
+  }
+} else {
+  function isLocalHost(hostOrAddr){
+    try {
+      getLocalHost() == getInetAddress(hostOrAddr)
+    } catch (UnknownHostException e) {
+      return false
+    }
+  }
+}

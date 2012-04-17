@@ -1,0 +1,68 @@
+package("pnuts.io")
+
+import("java.io.PipedInputStream")
+import("java.io.PipedOutputStream")
+import("java.io.PipedReader")
+import("java.io.PipedWriter")
+import("java.io.InputStream")
+import("java.io.OutputStream")
+import("java.io.Reader")
+import("java.io.Writer")
+import("java.io.File")
+import("java.net.URL")
+
+function pipe(f, stream){
+  if (stream instanceof InputStream || stream instanceof String || stream instanceof File || stream instanceof URL){
+    pin = PipedInputStream()
+    pout = PipedOutputStream(pin)
+    fork(function (){ f(stream, pout); pout.flush(); pout.close(); }, 3, true)
+    pin
+  } else if (stream instanceof Reader){
+    pin = PipedReader()
+    pout = PipedWriter(pin)
+    fork(function (){ f(stream, pout); pout.flush(); pout.close(); }, 3, true)
+    pin
+  } else if (stream instanceof OutputStream){
+    pout = PipedOutputStream()
+    pin = PipedInputStream(pout)
+    fork(function (){ f(pin, stream); stream.flush(); stream.close() }, 3, true)
+    pout
+  } else if (stream instanceof Writer){
+    pout = PipedWriter()
+    pin = PipedReader(pout)
+    fork(function (){ f(pin, stream); stream.flush(); stream.close() }, 3, true)
+    pout
+  } else {
+    ERROR("inputStreamOrOutputStream.isExpected", stream)
+  }
+}
+
+import("java.io.StringReader")
+function stringReader(str) StringReader(str)
+
+import("java.io.StringWriter")
+function stringWriter() StringWriter()
+
+import("java.io.ByteArrayOutputStream")
+function openByteArray() ByteArrayOutputStream()
+
+import("java.io.ByteArrayInputStream")
+function openByteArray(byte_array) ByteArrayInputStream(byte_array)
+
+import("java.io.CharArrayWriter")
+function openCharArray() CharArrayWriter()
+
+import("java.io.CharArrayReader")
+function openCharArray(char_array) CharArrayReader(char_array)
+
+function getByteArray(input){
+  buf = openByteArray()
+  read(input, buf)
+  buf.toByteArray()
+}
+
+function getCharArray(input){
+  buf = openCharArray()
+  read(input, buf)
+  buf.toCharArray()
+}

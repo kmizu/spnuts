@@ -1,0 +1,107 @@
+package("pnuts.mail")
+/*
+ *  listMailFolders(folder, callback {, enterFunc, exitFunc })
+ *  openMailStore(url) or (protocol, host, id, passwd)
+ *  openMailFolder(store, name, mode) or folder)
+ *  getMessages(folder {, prof {, messages } } )
+ *
+ *  FETCH_ENVELOPE = FetchProfile$Item::ENVELOPE
+ *  FETCH_FLAGS = FetchProfile$Item::FLAGS
+ *  FETCH_CONTENT_INFO = FetchProfile$Item::CONTENT_INFO
+ */
+import("java.util.*")
+import("javax.mail.*")
+import("javax.mail.internet.*")
+
+function openMailStore(urlOrMap){
+  openMailStore(urlOrMap, Properties())
+}
+
+function openMailStore(urlOrMap, props){
+  if (urlOrMap instanceof java.net.URL){
+    session = Session::getInstance(props)
+    store = session.getStore(new javax.mail.URLName(string(url)))
+  } else {
+    m = urlOrMap
+    if (m.ssl){
+      props = map([],"P")
+      props["mail.imap.socketFactory.class"] =  "javax.net.ssl.SSLSocketFactory"
+      props["mail.imap.socketFactory.fallback"] = "false"
+      props["mail.imap.socketFactory.port"] = "993"
+    }
+    session = Session::getInstance(props,
+                new javax.mail.Authenticator() {
+                     getPasswordAuthentication() {
+                        return new javax.mail.PasswordAuthentication(m.userid, m.password)
+                    }
+                })
+    store = session.getStore(m.protocol)
+    store.connect(m.host, m.userid, m.password)
+  } 
+  store
+}
+
+function openMailStore(protocol, host, id, passwd){
+  openMailStore(protocol, host, id, passwd, Properties())
+}
+
+function openMailStore(protocol, host, userid, passwd, props){
+  session = Session::getInstance(properties, null)
+  store = session.getStore(protocol)
+  store.connect(host, userid, passwd)
+  store
+}
+
+function listMailFolders(folder, callback) listMailFolders(folder, callback, null, null) 
+function listMailFolders(folder, callback, enterFunc, exitFunc){
+   callback(folder)
+   if (enterFunc != null) enterFunc(folder)
+   foreach c (folder.list()){
+      listMailFolders(c, callback, enterFunc, exitFunc)
+   }
+   if (exitFunc != null) exitFunc(folder)
+}
+
+function openMailFolder(store, name, mode){
+  folder = store.getFolder(name)
+  if (mode == "r"){
+    mode = Folder::READ_ONLY
+  } else if (mode == "w"){
+    mode = Folder::READ_WRITE
+  }
+  if (!folder.isOpen()) folder.open(mode)
+  folder
+}
+
+function openMailFolder(folder){
+  if (!folder.isOpen()){
+   folder.open(Folder::READ_ONLY)
+  }
+}
+
+FETCH_ENVELOPE = FetchProfile$Item::ENVELOPE
+FETCH_FLAGS = FetchProfile$Item::FLAGS
+FETCH_CONTENT_INFO = FetchProfile$Item::CONTENT_INFO
+
+function getMessages(folder) getMessages(folder, [FETCH_FLAGS, FETCH_ENVELOPE])
+function getMessages(folder, prof) getMessages(folder, prof, null)
+function getMessages(folder, prof, messages){
+  fp = null
+  if (messages == null) messages = folder.getMessages()
+  if (isArray(prof) || prof instanceof Collection){
+     fp = FetchProfile()
+     foreach i (prof){
+       fp.add(i)
+     }
+  } else if (prof instanceof FetchProfile$Item){
+     fp = FetchProfile()
+     fp.add(prof)
+  } else if (prof instanceof String){
+     fp = FetchProfile()
+     fp.add(prof)
+  }
+  print("fetching...");flush()
+  folder.fetch(messages, fp)
+  println("done");flush()
+  messages
+}

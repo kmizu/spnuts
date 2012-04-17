@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="Pnuts Moudles" default="all" basedir=".">
+
+  <property file="../build.properties"/>
+  <property file="build.properties"/>
+  <property file="../deploy.properties"/>
+
+  <!-- Project Properties -->
+  <property name="jar.file" value="pnuts-modules.jar"/>
+  <property name="build.tmp" value="tmp"/>
+  <property name="pnuts.license" value="../LICENSE.txt"/>
+  <property name="javadoc.dir" value="apidoc"/>
+  <property name="src.dist" value="${install.dir}-src"/>
+  <property name="doc.dist" value="${install.dir}-doc"/>
+
+  <target name="all" depends="build.subprojects,jarfile,install"/>
+
+  <target name="build.dirs">
+    <mkdir dir="${build.tmp}/meta-inf"/>
+  </target>
+
+  <target name="jarfile">
+    <unzip src="pnuts.lib/pnuts-lib.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.net/pnuts-net.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.util/pnuts-util.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.awt/pnuts-awt.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.text/pnuts-text.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.beans/pnuts-beans.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.mail/pnuts-mail.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.math/pnuts-math.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.xml/pnuts-xml.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.servlet/pnuts-servlet.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.io/pnuts-io.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.multithread/pnuts-multithread.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.nio/pnuts-nio.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.security/pnuts-security.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.regex/pnuts-regex.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.regex.jsr51/pnuts-jsr51.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.jdo/pnuts-jdo.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.jdbc/pnuts-jdbc.jar" dest="${build.tmp}"/>
+    <unzip src="pnuts.jmx/pnuts-jmx.jar" dest="${build.tmp}"/>
+    <unzip src="java.util/java-util.jar" dest="${build.tmp}"/>
+    <unzip src="java.io/java-io.jar" dest="${build.tmp}"/>
+    <unzip src="java.net/java-net.jar" dest="${build.tmp}"/>
+
+    <tstamp>
+       <format property="build.number" pattern="yyyyMMddHHmmss" locale="en"/>
+    </tstamp>
+    <copy file="${pnuts.license}" todir="${build.tmp}/META-INF"/>
+    <jar jarfile="${jar.file}">
+       <manifest>
+         <attribute name="Specification-Title" value="${specification.title}"/>
+         <attribute name="Specification-Version" value="${specification.version}"/>
+         <attribute name="Specification-Vendor" value="${specification.vendor}"/>
+         <attribute name="Implementation-Title" value="${implementation.title}"/>
+         <attribute name="Implementation-Version" value="${build.number}"/>
+         <attribute name="Implementation-Vendor" value="${implementation.vendor}"/>
+         <attribute name="Pnuts-Modules" value="${pnuts.modules}"/>
+         <attribute name="Pnuts-Version" value="${pnuts.version}"/>
+         <attribute name="Java-Version" value="${jre.version}"/>
+       </manifest>
+       <fileset dir="${build.tmp}"/>
+    </jar> 
+  </target>
+
+  <target name="build.subprojects">
+     <ant dir="pnuts.lib" inheritAll="false"/>
+     <ant dir="pnuts.net" inheritAll="false"/>
+     <ant dir="pnuts.util" inheritAll="false"/>
+     <ant dir="pnuts.math" inheritAll="false"/>
+     <ant dir="pnuts.mail" inheritAll="false"/>
+     <ant dir="pnuts.security" inheritAll="false"/>
+     <ant dir="pnuts.io" inheritAll="false"/>
+     <ant dir="pnuts.beans" inheritAll="false"/>
+     <ant dir="pnuts.text" inheritAll="false"/>
+     <ant dir="pnuts.multithread" inheritAll="false"/>
+     <ant dir="pnuts.jdo" inheritAll="false"/>
+     <ant dir="pnuts.jdbc" inheritAll="false"/>
+     <ant dir="pnuts.servlet" inheritAll="false"/>
+     <ant dir="pnuts.nio" inheritAll="false"/>
+     <ant dir="pnuts.awt" inheritAll="false"/>
+     <ant dir="pnuts.xml" inheritAll="false"/>
+     <ant dir="pnuts.regex" inheritAll="false"/>
+     <ant dir="pnuts.regex.jsr51" inheritAll="false"/>
+     <ant dir="pnuts.jmx" inheritAll="false"/>
+     <ant dir="java.util" inheritAll="false"/>
+     <ant dir="java.io" inheritAll="false"/>
+     <ant dir="java.net" inheritAll="false"/>
+  </target>
+
+  <target name="clean.subprojects">
+     <ant dir="pnuts.lib" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.net" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.util" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.math" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.mail" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.security" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.io" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.beans" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.text" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.multithread" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.jdo" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.jdbc" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.servlet" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.nio" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.awt" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.xml" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.regex" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.regex.jsr51" target="clean" inheritAll="false"/>
+     <ant dir="pnuts.jmx" target="clean" inheritAll="false"/>
+     <ant dir="java.util" target="clean" inheritAll="false"/>
+     <ant dir="java.io" target="clean" inheritAll="false"/>
+     <ant dir="java.net" target="clean" inheritAll="false"/>
+  </target>
+
+  <target name="apidoc">
+    <javadoc destdir="${javadoc.dir}"
+             classpath="../build/share/pnuts.jar"
+             packagenames="${javadoc.packages}"
+             windowtitle="Pnuts Standard Modules API"
+             locale="en">
+      <sourcepath>
+        <dirset dir=".">
+          <include name="**/src"/>
+        </dirset>
+      </sourcepath>
+      <bottom>Copyright 1997-2004 Sun Microsystems, Inc. All Rights Reserved.</bottom>
+    </javadoc>
+  </target>
+
+  <target name="install">
+    <mkdir dir="${install.dir}/modules"/>
+    <copy todir="${install.dir}/modules">
+      <fileset file="pnuts-modules.jar"/>
+    </copy>
+  </target>
+
+  <target name="src.dist">
+    <mkdir dir="${src.dist}/modules"/>
+    <copy file="build.xml" todir="${src.dist}/modules"/>
+    <copy file="build.properties" todir="${src.dist}/modules"/>
+    <copy todir="${src.dist}/modules" >
+      <fileset dir="." >
+        <exclude name="**/BitKeeper/**"/>
+        <exclude name="**/SCCS"/>
+        <exclude name="**/doc/**"/>
+        <exclude name="**/doc.ja/**"/>
+      </fileset>
+    </copy>
+  </target>
+
+  <target name="doc.dist">
+    <mkdir dir="${doc.dist}/modules"/>
+    <copy todir="${doc.dist}/modules" >
+      <fileset dir="." >
+        <include name="stylesheet.css"/>
+        <include name="*/doc/**"/>
+        <exclude name="**/SCCS"/>
+        <exclude name="**/BitKeeper/**"/>
+      </fileset>
+    </copy>
+  </target>
+
+  <target name="doc.dist_ja">
+    <mkdir dir="${doc.dist}/modules"/>
+    <copy todir="${doc.dist}/modules" >
+      <fileset dir="." >
+        <include name="stylesheet.css"/>
+        <include name="*/doc.ja/**"/>
+        <include name="*/doc/image/**"/>
+        <exclude name="**/SCCS"/>
+        <exclude name="**/BitKeeper/**"/>
+      </fileset>
+    </copy>
+  </target>
+
+  <target name="clean" depends="clean.subprojects">
+    <delete dir="${build.tmp}"/>
+    <delete file="${jar.file}"/>
+  </target>
+
+
+</project>
