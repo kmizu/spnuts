@@ -1,6 +1,6 @@
 # SPnuts
 
-A Scala 3 reimplementation of the [Pnuts](https://pnuts.dev.java.net/) scripting language, originally created by Toyokazu Watarai (戸松豊和) at Sun Microsystems.
+A Scala 3 reimplementation of the [Pnuts](https://pnuts.dev.java.net/) scripting language, originally created by Toyokazu Tomatsu (戸松豊和) at Sun Microsystems.
 
 Builds for both **JVM** and **Scala Native** (cross-platform).
 
@@ -128,7 +128,7 @@ spnuts/
 
 ## Background
 
-Pnuts was a Java-embedded scripting language developed at Sun Microsystems by Toyokazu Watarai (戸松豊和). This reimplementation is done with permission, using a hand-written PEG parser based on the original `Pnuts.jjt` grammar.
+Pnuts was a Java-embedded scripting language developed at Sun Microsystems by Toyokazu Tomatsu (戸松豊和). This reimplementation is done with permission, using a hand-written PEG parser based on the original `Pnuts.jjt` grammar.
 
 ## License
 
