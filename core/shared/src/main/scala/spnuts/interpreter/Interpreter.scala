@@ -637,6 +637,29 @@ object Interpreter:
 
   private def toDouble(v: Any): Double = Operators.toDouble(v)
 
+  // ── Public APIs for use by the JIT compiler (CompiledHelper) ─────────────────
+
+  def callValuePublic(f: Any, args: Array[Any], ctx: Context, pos: spnuts.ast.SourcePos): Any =
+    callValue(f, args, ctx, pos)
+
+  def callMethodPublic(target: Any, method: String, args: Array[Any], ctx: Context, pos: spnuts.ast.SourcePos): Any =
+    callMethod(target, method, args, ctx, pos)
+
+  def getFieldPublic(target: Any, member: String, ctx: Context, pos: spnuts.ast.SourcePos): Any =
+    getField(target, member, ctx, pos)
+
+  def getElementPublic(target: Any, idx: Any, pos: spnuts.ast.SourcePos): Any =
+    getElement(target, idx, pos)
+
+  def setElementPublic(target: Any, idx: Any, value: Any, pos: spnuts.ast.SourcePos): Unit =
+    setElement(target, idx, value, pos)
+
+  def getRangePublic(target: Any, from: Any, to: Option[Any], pos: spnuts.ast.SourcePos): Any =
+    getRange(target, from, to, pos)
+
+  def castValuePublic(v: Any, cls: Class[?], pos: spnuts.ast.SourcePos): Any =
+    castValue(v, cls, pos)
+
 // ── Errors ─────────────────────────────────────────────────────────────────────
 
 case class RuntimeError(
