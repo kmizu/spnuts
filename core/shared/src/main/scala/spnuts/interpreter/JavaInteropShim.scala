@@ -2,6 +2,9 @@ package spnuts.interpreter
 
 import spnuts.ast.SourcePos
 
+/** Represents an unresolved dotted class/package path like "java" or "java.lang". */
+case class ClassPathMarker(path: String)
+
 /**
  * Shim for Java interop calls.
  * The default (shared) implementation is stub-only.
@@ -18,6 +21,10 @@ object JavaInteropShim:
   /** Get a field or property. */
   def getField(target: Any, member: String, pos: SourcePos): Any =
     getFieldImpl(target, member, pos)
+
+  /** Get a static field from a class. */
+  def getStaticField(cls: Class[?], member: String, pos: SourcePos): Any =
+    getStaticFieldImpl(cls, member, pos)
 
   /** Set a field or property. */
   def setField(target: Any, member: String, value: Any, pos: SourcePos): Unit =
@@ -37,6 +44,8 @@ object JavaInteropShim:
     defaultCallMethod
   var getFieldImpl: (Any, String, SourcePos) => Any =
     defaultGetField
+  var getStaticFieldImpl: (Class[?], String, SourcePos) => Any =
+    defaultGetStaticField
   var setFieldImpl: (Any, String, Any, SourcePos) => Unit =
     defaultSetField
   var resolveClassImpl: (String, List[String]) => Option[Class[?]] =
@@ -51,6 +60,9 @@ object JavaInteropShim:
 
   private def defaultGetField(target: Any, member: String, pos: SourcePos): Any =
     throw RuntimeError(s"Java interop not available: field '$member'", pos)
+
+  private def defaultGetStaticField(cls: Class[?], member: String, pos: SourcePos): Any =
+    throw RuntimeError(s"Java interop not available: static field '${cls.getName}.$member'", pos)
 
   private def defaultSetField(target: Any, member: String, value: Any, pos: SourcePos): Unit =
     throw RuntimeError(s"Java interop not available: field '$member'", pos)

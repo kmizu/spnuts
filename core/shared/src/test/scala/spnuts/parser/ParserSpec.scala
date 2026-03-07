@@ -137,3 +137,126 @@ class ParserSpec extends AnyFlatSpec with Matchers:
     val ast = Parser.parse("x = 1\ny = 2\nx + y", "<test>")
     ast.exprs should have size 3
   }
+
+  it should "parse do-while" in {
+    parse("do { x = x + 1 } while (x < 3)") shouldBe an[DoWhileExpr]
+  }
+
+  it should "parse switch" in {
+    parse("""switch (x) { case 1: x; break case 2: x }""") shouldBe an[SwitchExpr]
+  }
+
+  it should "parse try-catch-finally" in {
+    parse("""try { f() } catch (java.lang.Exception e) { 0 } finally { cleanup() }""") shouldBe an[TryExpr]
+  }
+
+  it should "parse throw" in {
+    parse("throw e") shouldBe an[ThrowExpr]
+  }
+
+  it should "parse yield" in {
+    parse("yield 42") shouldBe an[YieldExpr]
+  }
+
+  it should "parse continue" in {
+    parse("continue") shouldBe a[ContinueExpr]
+  }
+
+  it should "parse compound assignment operators" in {
+    parse("x += 1")  shouldBe an[Assignment]
+    parse("x -= 1")  shouldBe an[Assignment]
+    parse("x *= 2")  shouldBe an[Assignment]
+    parse("x /= 2")  shouldBe an[Assignment]
+    parse("x %= 3")  shouldBe an[Assignment]
+    parse("x &= 1")  shouldBe an[Assignment]
+    parse("x |= 1")  shouldBe an[Assignment]
+    parse("x ^= 1")  shouldBe an[Assignment]
+    parse("x <<= 1") shouldBe an[Assignment]
+    parse("x >>= 1") shouldBe an[Assignment]
+  }
+
+  it should "parse pre/post increment and decrement" in {
+    parse("++x") shouldBe an[UnaryExpr]
+    parse("--x") shouldBe an[UnaryExpr]
+    parse("x++") shouldBe an[UnaryExpr]
+    parse("x--") shouldBe an[UnaryExpr]
+  }
+
+  it should "parse multi-assign" in {
+    parse("a, b = expr") shouldBe an[MultiAssign]
+    parse("a, b, c = expr") shouldBe an[MultiAssign]
+  }
+
+  it should "parse for C-style loop" in {
+    parse("for (i = 0; i < 10; i = i + 1) body") shouldBe an[ForExpr]
+  }
+
+  it should "parse for-each with range" in {
+    parse("for (x : 1..10) body") shouldBe an[ForEachExpr]
+  }
+
+  it should "parse new expression" in {
+    parse("new java.util.ArrayList()") shouldBe an[NewExpr]
+  }
+
+  it should "parse instanceof" in {
+    parse("x instanceof java.lang.String") shouldBe an[InstanceofExpr]
+  }
+
+  it should "parse cast" in {
+    parse("(int) x") shouldBe an[CastExpr]
+  }
+
+  it should "parse import" in {
+    parse("import java.util.*") shouldBe an[ImportExpr]
+  }
+
+  it should "parse package" in {
+    parse("package foo.bar") shouldBe an[PackageExpr]
+  }
+
+  it should "parse string interpolation" in {
+    parse("""name = "World"; "Hello \(name)!"""") shouldBe an[ExprList]
+  }
+
+  it should "parse unary operators" in {
+    parse("-x")  shouldBe an[UnaryExpr]
+    parse("!x")  shouldBe an[UnaryExpr]
+    parse("~x")  shouldBe an[UnaryExpr]
+  }
+
+  it should "parse bitwise and shift operators" in {
+    parse("a & b")   shouldBe an[BinaryExpr]
+    parse("a | b")   shouldBe an[BinaryExpr]
+    parse("a ^ b")   shouldBe an[BinaryExpr]
+    parse("a << 2")  shouldBe an[BinaryExpr]
+    parse("a >> 2")  shouldBe an[BinaryExpr]
+    parse("a >>> 2") shouldBe an[BinaryExpr]
+  }
+
+  it should "parse block expression" in {
+    parse("{ x = 1; x + 2 }") shouldBe an[Block]
+  }
+
+  it should "parse closure with multiple params" in {
+    parse("{ x, y, z -> x + y + z }") shouldBe an[FuncDef]
+  }
+
+  it should "parse static member access (::)" in {
+    parse("obj::field") shouldBe an[StaticMemberAccess]
+    parse("obj::method()") shouldBe an[StaticMethodCall]
+  }
+
+  it should "parse char literal" in {
+    parse("'a'") shouldBe an[CharLit]
+    parse("'\\n'") shouldBe an[CharLit]
+  }
+
+  it should "parse hex literals" in {
+    parse("0xFF") match
+      case IntLit(255L, _, _) => succeed
+      case other => fail(s"Unexpected: $other")
+    parse("#FF") match
+      case IntLit(255L, _, _) => succeed
+      case other => fail(s"Unexpected: $other")
+  }

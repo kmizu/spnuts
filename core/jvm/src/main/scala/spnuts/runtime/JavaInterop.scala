@@ -19,11 +19,12 @@ object JavaInterop:
 
   /** Install this implementation as the shim. Called by JvmPlatform.init(). */
   def install(): Unit =
-    JavaInteropShim.callMethodImpl     = callMethod
-    JavaInteropShim.getFieldImpl       = getField
-    JavaInteropShim.setFieldImpl       = setField
-    JavaInteropShim.resolveClassImpl   = resolveClass
-    JavaInteropShim.callConstructorImpl= callConstructor
+    JavaInteropShim.callMethodImpl      = callMethod
+    JavaInteropShim.getFieldImpl        = getField
+    JavaInteropShim.getStaticFieldImpl  = getStaticField
+    JavaInteropShim.setFieldImpl        = setField
+    JavaInteropShim.resolveClassImpl    = resolveClass
+    JavaInteropShim.callConstructorImpl = callConstructor
 
   // ── Class resolution cache ─────────────────────────────────────────────────
 
@@ -111,6 +112,16 @@ object JavaInterop:
               case None =>
                 throw RuntimeError(s"No field or getter '$member' on ${cls.getName}", pos)
 
+  def getStaticField(cls: Class[?], member: String, pos: SourcePos): Any =
+    findField(cls, member) match
+      case Some(f) => f.setAccessible(true); f.get(null) // null = static
+      case None =>
+        // Try static method with 0 args (e.g. EnumClass.VALUE)
+        findMethod(cls, member, 0) match
+          case Some(m) => m.setAccessible(true); m.invoke(null)
+          case None =>
+            throw RuntimeError(s"No static field or method '$member' on ${cls.getName}", pos)
+
   def setField(target: Any, member: String, value: Any, pos: SourcePos): Unit =
     val cls = target.getClass
     findField(cls, member) match
@@ -157,8 +168,8 @@ object JavaInterop:
     val ti = order.indexWhere(_ == target)
     val si = order.indexWhere(_ == src)
     if ti < 0 || si < 0 then -1
-    else if ti >= si then (ti - si) / 2
-    else -1 // can't narrow
+    else if ti >= si then (ti - si) / 2           // widening (preferred)
+    else (si - ti) / 2 + 10                       // narrowing (allowed but penalized)
 
   private def isBoxedNumber(cls: Class[?]): Boolean =
     cls == classOf[java.lang.Integer] || cls == classOf[java.lang.Long] ||

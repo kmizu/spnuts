@@ -45,7 +45,9 @@ object Interpreter:
     case Ident(name, pos) =>
       try ctx.getValue(name)
       catch case e: RuntimeException =>
-        throw RuntimeError(s"Undefined variable: '$name'", pos, e)
+        // Fall back to class resolution for Java interop (e.g. `java` in `java.lang.Math.abs(x)`)
+        JavaInteropShim.resolveClass(name, ctx.imports.toList)
+          .getOrElse(ClassPathMarker(name))
 
     case GlobalRef(name, pos) =>
       PnutsPackage.global.lookup(name)
@@ -395,6 +397,12 @@ object Interpreter:
       // Phase 3: delegate to bytecode compiler
       throw UnsupportedOperationError("class definition requires Phase 3 compiler")
 
+    case RecordDef(name, fields, _) =>
+      // Create a factory function and register it in the current package
+      val factory = PnutsRecord.makeFactory(name, fields.map(_.fieldName))
+      ctx.currentPackage.set(name, factory)
+      null
+
     // CatchExpr / FinallyExpr: functional exception-handling forms
     case CatchExpr(cls, handler, pos) =>
       val clsVal    = eval(cls, ctx)
@@ -473,8 +481,23 @@ object Interpreter:
 
     // Java reflection
     if target == null then throw RuntimeError("Cannot call method on null", pos)
-    val cls = target.getClass
-    JavaInteropShim.callMethod(cls, target, method, args, pos)
+    target match
+      case r: PnutsRecordInstance =>
+        // Support getter-style access: .getName() → field "name"
+        val getterPrefix = "get"
+        val fieldName =
+          if method.startsWith(getterPrefix) && method.length > getterPrefix.length then
+            val n = method.drop(getterPrefix.length)
+            n.head.toLower.toString + n.tail
+          else method
+        r.get(fieldName)
+          .getOrElse(throw RuntimeError(s"Record '${r.typeName}' has no field '$fieldName'", pos))
+      case cls: Class[?] =>
+        // Static method call (e.g. java.lang.Math.abs(-42))
+        JavaInteropShim.callMethod(cls, null, method, args, pos)
+      case _ =>
+        val cls = target.getClass
+        JavaInteropShim.callMethod(cls, target, method, args, pos)
 
   private def getField(target: Any, member: String, ctx: Context, pos: spnuts.ast.SourcePos): Any =
     if target == null then throw RuntimeError("Cannot access field on null", pos)
@@ -482,6 +505,16 @@ object Interpreter:
       case p: PnutsPackage =>
         p.lookup(member).map(_.value).getOrElse(null)
       case arr: Array[?] if member == "length" => arr.length
+      case r: PnutsRecordInstance =>
+        r.get(member).getOrElse(throw RuntimeError(s"Record '${r.typeName}' has no field '$member'", pos))
+      case ClassPathMarker(path) =>
+        // Extend the class path: try resolving "path.member" as a class first
+        val fullPath = s"$path.$member"
+        JavaInteropShim.resolveClass(fullPath, ctx.imports.toList)
+          .getOrElse(ClassPathMarker(fullPath))
+      case cls: Class[?] =>
+        // Static field access on a resolved class
+        JavaInteropShim.getStaticField(cls, member, pos)
       case _ =>
         JavaInteropShim.getField(target, member, pos)
 

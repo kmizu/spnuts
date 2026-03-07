@@ -371,3 +371,374 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
     val r = run("a = [10, 20, 30, 40, 50]; a[1..3]")
     r.asInstanceOf[Array[?]].toList shouldBe List(20L, 30L, 40L)
   }
+
+  // ── Pre/post increment / decrement ───────────────────────────────────────────
+
+  it should "evaluate pre-increment" in {
+    run("x = 5; ++x") shouldBe 6L
+    run("x = 5; ++x; x") shouldBe 6L
+  }
+
+  it should "evaluate post-increment" in {
+    run("x = 5; x++") shouldBe 5L   // returns old value
+    run("x = 5; x++; x") shouldBe 6L
+  }
+
+  it should "evaluate pre-decrement" in {
+    run("x = 5; --x") shouldBe 4L
+  }
+
+  it should "evaluate post-decrement" in {
+    run("x = 5; x--") shouldBe 5L
+    run("x = 5; x--; x") shouldBe 4L
+  }
+
+  // ── Compound assignment extras ────────────────────────────────────────────────
+
+  it should "evaluate all compound assignment operators" in {
+    run("x = 10; x /= 4; x") shouldBe 2L
+    run("x = 10; x %= 3; x") shouldBe 1L
+    run("x = 6; x &= 3; x")  shouldBe 2L
+    run("x = 6; x |= 1; x")  shouldBe 7L
+    run("x = 5; x ^= 3; x")  shouldBe 6L
+    run("x = 1; x <<= 3; x") shouldBe 8L
+    run("x = 8; x >>= 2; x") shouldBe 2L
+  }
+
+  // ── Float arithmetic ──────────────────────────────────────────────────────────
+
+  it should "evaluate float arithmetic" in {
+    run("1.5 + 2.5") shouldBe 4.0
+    run("3.0 * 2.0") shouldBe 6.0
+    run("7.0 / 2.0") shouldBe 3.5
+  }
+
+  it should "evaluate integer + float promotion" in {
+    run("1 + 2.0") shouldBe 3.0
+    run("3 * 1.5") shouldBe 4.5
+  }
+
+  // ── Index assignment ──────────────────────────────────────────────────────────
+
+  it should "evaluate index assignment" in {
+    run("a = [1, 2, 3]; a[1] = 99; a[1]") shouldBe 99L
+  }
+
+  // ── Continue in loop ──────────────────────────────────────────────────────────
+
+  it should "evaluate continue in while loop" in {
+    run("""
+      sum = 0
+      i = 0
+      while (i < 5) {
+        i = i + 1
+        if (i == 3) continue
+        sum = sum + i
+      }
+      sum
+    """) shouldBe 12L  // 1+2+4+5 = 12
+  }
+
+  it should "evaluate continue in for-each" in {
+    run("""
+      sum = 0
+      for (x : [1, 2, 3, 4, 5]) {
+        if (x == 3) continue
+        sum = sum + x
+      }
+      sum
+    """) shouldBe 12L  // 1+2+4+5
+  }
+
+  // ── Switch fallthrough ────────────────────────────────────────────────────────
+
+  it should "evaluate switch fallthrough without break" in {
+    run("""
+      x = 1; r = 0
+      switch (x) {
+        case 1: r = r + 1
+        case 2: r = r + 10
+        default: r = r + 100
+      }
+      r
+    """) shouldBe 111L  // falls through all cases
+  }
+
+  it should "evaluate switch default only" in {
+    run("""
+      x = 99; r = "none"
+      switch (x) {
+        case 1: r = "one"; break
+        default: r = "other"
+      }
+      r
+    """) shouldBe "other"
+  }
+
+  // ── Try/finally (no catch) ────────────────────────────────────────────────────
+
+  it should "evaluate try-finally without catch" in {
+    run("""
+      x = 0
+      try { x = 1 } finally { x = x + 10 }
+      x
+    """) shouldBe 11L
+  }
+
+  it should "run finally even when exception thrown" in {
+    run("""
+      x = 0
+      try {
+        try { throw "err" }
+        catch (java.lang.RuntimeException e) { x = 1 }
+        finally { x = x + 10 }
+      } catch (java.lang.Exception e) { x = 99 }
+      x
+    """) shouldBe 11L
+  }
+
+  // ── Nested functions / closures ───────────────────────────────────────────────
+
+  it should "evaluate higher-order function returning closure" in {
+    run("""
+      function adder(n) { x -> x + n }
+      add5 = adder(5)
+      add5(10)
+    """) shouldBe 15L
+  }
+
+  it should "evaluate closure capturing mutable variable" in {
+    run("""
+      function makeCounter() {
+        count = 0
+        { -> count = count + 1; count }
+      }
+      c = makeCounter()
+      c()
+      c()
+      c()
+    """) shouldBe 3L
+  }
+
+  it should "evaluate varargs function" in {
+    run("""
+      function sum(args[]) {
+        total = 0
+        for (x : args) total = total + x
+        total
+      }
+      sum(1, 2, 3, 4, 5)
+    """) shouldBe 15L
+  }
+
+  // ── for-each over java.util.List ─────────────────────────────────────────────
+
+  it should "iterate for-each over ArrayList" in {
+    runLib("""
+      lst = toList([10, 20, 30])
+      sum = 0
+      for (x : lst) sum = sum + x
+      sum
+    """) shouldBe 60L
+  }
+
+  // ── Multi-assign edge cases ───────────────────────────────────────────────────
+
+  it should "handle multi-assign with fewer elements than targets" in {
+    run("a, b, c = [1, 2]; a + b") shouldBe 3L
+    run("a, b, c = [1, 2]; c") shouldBe (null: Any)  // missing → null
+  }
+
+  it should "handle multi-assign with single value" in {
+    run("a, b = 42; a") shouldBe 42L  // non-array → first gets value, rest null
+  }
+
+  // ── Null handling ─────────────────────────────────────────────────────────────
+
+  it should "compare with null" in {
+    run("x = null; x == null") shouldBe true
+    run("x = 1; x == null")    shouldBe false
+  }
+
+  // ── Boolean short-circuit ─────────────────────────────────────────────────────
+
+  it should "short-circuit && and ||" in {
+    // If short-circuits, side-effect variable won't be set
+    run("x = 0; false && (x = 1); x") shouldBe 0L
+    run("x = 0; true  || (x = 1); x") shouldBe 0L
+  }
+
+  // ── if without else ───────────────────────────────────────────────────────────
+
+  it should "evaluate if without else (returns null)" in {
+    run("if (false) 42") shouldBe (null: Any)
+  }
+
+  it should "evaluate else-if chain" in {
+    run("""
+      x = 2
+      if (x == 1) "one"
+      else if (x == 2) "two"
+      else "other"
+    """) shouldBe "two"
+  }
+
+  // ── Builtin extras ───────────────────────────────────────────────────────────
+
+  it should "call sort()" in {
+    val r = runLib("sort([3, 1, 4, 1, 5, 9, 2, 6])")
+    r.asInstanceOf[Array[Any]].toList shouldBe List(1L, 1L, 2L, 3L, 4L, 5L, 6L, 9L)
+  }
+
+  it should "call sort() with comparator" in {
+    val r = runLib("sort([3, 1, 2], { a, b -> a > b })")
+    r.asInstanceOf[Array[Any]].toList shouldBe List(3L, 2L, 1L)
+  }
+
+  it should "call reverse()" in {
+    val r = runLib("reverse([1, 2, 3])")
+    r.asInstanceOf[Array[Any]].toList shouldBe List(3L, 2L, 1L)
+  }
+
+  it should "call append()" in {
+    import scala.jdk.CollectionConverters.*
+    val r = runLib("lst = toList([1, 2]); append(lst, 3); lst")
+    r.asInstanceOf[java.util.List[Any]].asScala.toList shouldBe List(1L, 2L, 3L)
+  }
+
+  it should "call keys() and values()" in {
+    val r = runLib("""keys({ "a" => 1, "b" => 2 })""")
+    r.asInstanceOf[Array[Any]].toSet shouldBe Set("a", "b")
+  }
+
+  it should "call contains()" in {
+    runLib("contains([1, 2, 3], 2)") shouldBe true
+    runLib("contains([1, 2, 3], 9)") shouldBe false
+    runLib("""contains("hello", "ell")""") shouldBe true
+  }
+
+  it should "call any() and all()" in {
+    runLib("any([1, 2, 3], { n -> n > 2 })") shouldBe true
+    runLib("all([1, 2, 3], { n -> n > 0 })") shouldBe true
+    runLib("all([1, 2, 3], { n -> n > 1 })") shouldBe false
+  }
+
+  it should "call range() with step" in {
+    val r = runLib("range(0, 10, 2)")
+    r.asInstanceOf[Array[Any]].toList shouldBe List(0L, 2L, 4L, 6L, 8L)
+  }
+
+  it should "call split()" in {
+    val r = runLib("""split("a,b,c", ",")""")
+    r.asInstanceOf[Array[Any]].toList shouldBe List("a", "b", "c")
+  }
+
+  it should "call trim / toUpperCase / toLowerCase" in {
+    runLib("""trim("  hello  ")""")        shouldBe "hello"
+    runLib("""toUpperCase("hello")""")     shouldBe "HELLO"
+    runLib("""toLowerCase("HELLO")""")     shouldBe "hello"
+  }
+
+  it should "call startsWith / endsWith / indexOf" in {
+    runLib("""startsWith("hello", "he")""") shouldBe true
+    runLib("""endsWith("hello", "lo")""")   shouldBe true
+    runLib("""indexOf("hello", "ll")""")    shouldBe 2L
+  }
+
+  it should "call substring()" in {
+    runLib("""substring("hello", 1, 4)""") shouldBe "ell"
+    runLib("""substring("hello", 2)""")    shouldBe "llo"
+  }
+
+  it should "call replace()" in {
+    runLib("""replace("hello world", "world", "SPnuts")""") shouldBe "hello SPnuts"
+  }
+
+  it should "call floor / ceil / round" in {
+    runLib("floor(3.7)") shouldBe 3L
+    runLib("ceil(3.2)")  shouldBe 4L
+    runLib("round(3.5)") shouldBe 4L
+  }
+
+  it should "call assert() without message" in {
+    noException should be thrownBy runLib("assert(1 == 1)")
+    an[AssertionError] should be thrownBy runLib("assert(false)")
+  }
+
+  it should "call assert() with message" in {
+    val ex = the[AssertionError] thrownBy runLib("""assert(false, "bad")""")
+    ex.getMessage shouldBe "bad"
+  }
+
+  it should "call error()" in {
+    an[RuntimeException] should be thrownBy runLib("""error("boom")""")
+  }
+
+  it should "call isEmpty()" in {
+    runLib("isEmpty([])") shouldBe true
+    runLib("isEmpty([1])") shouldBe false
+    runLib("""isEmpty("")""") shouldBe true
+  }
+
+  it should "call float() and boolean()" in {
+    runLib("float(3)") shouldBe 3.0
+    runLib("""boolean(0)""") shouldBe false
+    runLib("""boolean(1)""") shouldBe true
+  }
+
+  it should "call put() and get() on map" in {
+    runLib("""m = map(); put(m, "k", 42); get(m, "k")""") shouldBe 42L
+  }
+
+  it should "call copy()" in {
+    val r = runLib("a = [1, 2, 3]; b = copy(a); b[0] = 99; a[0]")
+    r shouldBe 1L  // original unchanged
+  }
+
+  it should "call remove() on list" in {
+    import scala.jdk.CollectionConverters.*
+    val r = runLib("lst = toList([10, 20, 30]); remove(lst, 1); lst")
+    r.asInstanceOf[java.util.List[Any]].asScala.toList shouldBe List(10L, 30L)
+  }
+
+  // ── record type ────────────────────────────────────────────────────────────
+
+  it should "define and instantiate a record" in {
+    run("""
+      record Person(name, age)
+      p = Person("Alice", 30)
+      p.name
+    """) shouldBe "Alice"
+  }
+
+  it should "access multiple record fields" in {
+    run("""
+      record Point(x, y)
+      p = Point(3, 4)
+      p.x + p.y
+    """) shouldBe 7L
+  }
+
+  it should "access record field via getter-style method" in {
+    run("""
+      record Person(name, age)
+      p = Person("Bob", 25)
+      p.getName()
+    """) shouldBe "Bob"
+  }
+
+  it should "support records with type annotations" in {
+    run("""
+      record Person(String name, int age)
+      p = Person("Carol", 40)
+      p.age
+    """) shouldBe 40L
+  }
+
+  it should "support record toString" in {
+    run("""
+      record Color(r, g, b)
+      c = Color(255, 0, 128)
+      str(c)
+    """).asInstanceOf[String] should include("Color")
+  }

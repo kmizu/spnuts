@@ -142,6 +142,17 @@ case class CatchExpr(cls: Expr, handler: Expr, pos: SourcePos) extends Expr
 /** Standalone finally(body) or finally(body, finalizer) */
 case class FinallyExpr(body: Expr, finalizer: Option[Expr], pos: SourcePos) extends Expr
 
+// ── Record type (works on both JVM and Native) ───────────────────────────────
+
+/** `record Name(type field, ...)` — immutable value type with named fields */
+case class RecordDef(
+  name: String,
+  fields: List[RecordField],
+  pos: SourcePos
+) extends Expr
+
+case class RecordField(typeName: Option[String], fieldName: String)
+
 // ── Class / Type (JVM-centric, restricted on Native) ─────────────────────────
 
 case class ClassDef(

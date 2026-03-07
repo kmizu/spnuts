@@ -327,6 +327,7 @@ final class Parser(tokens: IndexedSeq[Token]):
       case TK.New        => parseNew(pos)
       case TK.Function   => parseFuncDef(pos, named = true)
       case TK.Class      => parseClassRef(pos)
+      case TK.Record     => parseRecordDef(pos)
       case TK.If         => parseIf(pos)
       case TK.While      => parseWhile(pos)
       case TK.Do         => parseDo(pos)
@@ -341,10 +342,12 @@ final class Parser(tokens: IndexedSeq[Token]):
       case TK.Throw      => advance(); ThrowExpr(if isExprStart then Some(expression()) else None, pos)
 
       case TK.LParen     =>
-        advance()
-        val e = expression()
-        expect(TK.RParen)
-        e
+        tryParseCast(pos).getOrElse {
+          advance()
+          val e = expression()
+          expect(TK.RParen)
+          e
+        }
 
       case TK.LBracket   => parseListLiteral(pos)
 
@@ -359,7 +362,8 @@ final class Parser(tokens: IndexedSeq[Token]):
   // ── Statement parsers ──────────────────────────────────────────────────────
 
   private def isExprStart: Boolean = current.kind match
-    case TK.Eol | TK.Semi | TK.RBrace | TK.RParen | TK.RBracket | TK.Eof => false
+    case TK.Eol | TK.Semi | TK.RBrace | TK.RParen | TK.RBracket | TK.Eof |
+         TK.Case | TK.Default | TK.Catch | TK.Finally => false
     case _ => true
 
   private def parseInterpolatedString(pos: SourcePos): Expr =
@@ -395,10 +399,11 @@ final class Parser(tokens: IndexedSeq[Token]):
     val params  = collection.mutable.ListBuffer.empty[String]
     var varargs = false
     while !check(TK.RParen) do
+      val name = expect(TK.Ident).image
+      params += name
       if check(TK.LBracket) && peek().kind == TK.RBracket then
         advance(); advance(); varargs = true
       else
-        params += expect(TK.Ident).image
         eat(TK.Comma); ()
     (params.toList, varargs)
 
@@ -418,12 +423,46 @@ final class Parser(tokens: IndexedSeq[Token]):
     else
       expression()
 
+  /** Try to parse `(TypeName) expr` as a CastExpr.
+   *  Backtracks on failure so caller can parse as parenthesized expression instead.
+   */
+  private def tryParseCast(pos: SourcePos): Option[CastExpr] =
+    val saved = cursor
+    try
+      advance() // consume '('
+      if !check(TK.Ident) then { cursor = saved; return None }
+      val parts = collection.mutable.ListBuffer[String]()
+      parts += advance().image
+      while check(TK.Dot) && peek().kind == TK.Ident do
+        advance(); parts += advance().image
+      if !check(TK.RParen) then { cursor = saved; return None }
+      advance() // consume ')'
+      // After ')' must be an expression-primary start (not an operator)
+      val ok = current.kind match
+        case TK.Ident | TK.IntLit | TK.FloatLit | TK.StringLit | TK.CharLit |
+             TK.StringStart | TK.True | TK.False | TK.Null |
+             TK.LParen | TK.Bang | TK.Tilde | TK.Minus |
+             TK.PlusPlus | TK.MinusMinus | TK.New => true
+        case _ => false
+      if !ok then { cursor = saved; return None }
+      val expr = unaryPrefix()
+      Some(CastExpr(parts.toList, 0, expr, pos))
+    catch
+      case _: ParseError => cursor = saved; None
+
   private def tryParseClosure(pos: SourcePos): Option[FuncDef] =
-    // { id [, id]* -> body }
+    // { [id [, id]*] -> body }
     val saved = cursor
     try
       val params = collection.mutable.ListBuffer.empty[String]
       var varargs = false
+      // Zero-param closure: starts immediately with ->
+      if check(TK.Arrow) then
+        advance()
+        skipEols()
+        val body = parseExprList()
+        expect(TK.RBrace)
+        return Some(FuncDef(None, Nil, false, Block(body, pos), pos))
       if check(TK.Ident) then
         params += advance().image
         while check(TK.Comma) do
@@ -630,6 +669,22 @@ final class Parser(tokens: IndexedSeq[Token]):
       else None
       NewExpr(name, Nil, args, body, pos)
 
+  private def parseRecordDef(pos: SourcePos): Expr =
+    expect(TK.Record)
+    val name = expect(TK.Ident).image
+    expect(TK.LParen)
+    val fields = collection.mutable.ListBuffer.empty[RecordField]
+    while !check(TK.RParen) do
+      // Optional type name before field name: allow "String name" or just "name"
+      val typeName = if check(TK.Ident) && peek().kind == TK.Ident then
+        Some(advance().image) // consume type name
+      else None
+      val fieldName = expect(TK.Ident).image
+      fields += RecordField(typeName, fieldName)
+      eat(TK.Comma); ()
+    expect(TK.RParen)
+    RecordDef(name, fields.toList, pos)
+
   private def parseClassRef(pos: SourcePos): Expr =
     expect(TK.Class)
     if check(TK.LParen) then
@@ -768,14 +823,15 @@ final class Parser(tokens: IndexedSeq[Token]):
 
   private def Token2Int(tok: Token, pos: SourcePos): IntLit =
     val raw = tok.image
-    val (numStr, suffix) =
-      if raw.last.isLetter then (raw.init, Some(raw.last)) else (raw, None)
     val n: Any =
-      if numStr.startsWith("0x") || numStr.startsWith("0X") then
-        java.lang.Long.parseLong(numStr.drop(2), 16)
-      else if numStr.startsWith("#") then
-        java.lang.Long.parseLong(numStr.drop(1), 16)
+      if raw.startsWith("0x") || raw.startsWith("0X") then
+        val hex = raw.drop(2)
+        val digits = if hex.nonEmpty && (hex.last == 'L' || hex.last == 'l') then hex.init else hex
+        java.lang.Long.parseLong(digits, 16)
+      else if raw.startsWith("#") then
+        java.lang.Long.parseLong(raw.drop(1), 16)
       else
+        val numStr = if raw.last == 'L' || raw.last == 'l' then raw.init else raw
         java.lang.Long.parseLong(numStr)
     IntLit(n, raw, pos)
 
