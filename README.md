@@ -128,7 +128,11 @@ spnuts/
 
 ## Background
 
-Pnuts was a Java-embedded scripting language developed at Sun Microsystems by Toyokazu Tomatsu (戸松豊和). This reimplementation is done with permission, using a hand-written PEG parser based on the original `Pnuts.jjt` grammar.
+Pnuts was a JVM scripting language created by Toyokazu Tomatsu (戸松豊和) during his time at Sun Microsystems. After Sun's acquisition by Oracle, the language went unmaintained for many years.
+
+Some time ago, [kmizu](https://github.com/kmizu) reached out to Tomatsu-san and was graciously given permission to take over the project. Despite that, there was no opportunity to actually implement a new version — until now.
+
+The trigger for this reimplementation was [Claude Code](https://claude.ai/code). Using it as a pair-programming partner made it finally feasible to rewrite Pnuts from scratch in Scala 3, with a hand-written PEG parser replacing the original JavaCC grammar, and cross-platform support via Scala Native.
 
 ## License
 
