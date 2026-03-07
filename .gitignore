@@ -1,0 +1,7 @@
+target/
+.bsp/
+.metals/
+.bloop/
+.vscode/
+*.class
+*.jar
