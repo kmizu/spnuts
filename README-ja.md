@@ -1,6 +1,6 @@
 # SPnuts
 
-元Sun Microsystemsの戸松豊雅さんが開発したスクリプト言語 [Pnuts](https://pnuts.dev.java.net/) を Scala 3 で再実装したプロジェクトです。戸松さんの許可のもと開発しています。
+元Sun Microsystemsの戸松豊和さんが開発したスクリプト言語 [Pnuts](https://pnuts.dev.java.net/) を Scala 3 で再実装したプロジェクトです。戸松さんの許可のもと開発しています。
 
 **JVM** と **Scala Native** の両方でビルド可能なクロスプラットフォーム実装です。
 
@@ -128,7 +128,7 @@ spnuts/
 
 ## 背景
 
-Pnutsは元Sun MicrosystemsのJava組み込みスクリプト言語で、戸松豊雅さんが開発しました。本実装はパーサーをJavaCC製から手書きPEGパーサーに置き換え、Scala 3でゼロから再実装したものです。Scala NativeによるJVM非依存バイナリ生成も可能です。
+Pnutsは元Sun MicrosystemsのJava組み込みスクリプト言語で、戸松豊和さんが開発しました。本実装はパーサーをJavaCC製から手書きPEGパーサーに置き換え、Scala 3でゼロから再実装したものです。Scala NativeによるJVM非依存バイナリ生成も可能です。
 
 実装者: コウタ（kmizu）— PEG研究の博士号取得者、Onion言語作者、Japan Scala Association理事
 
