@@ -20,6 +20,9 @@ jobs:
           distribution: 'temurin'
           cache: 'sbt'
 
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
       - name: Run JVM tests
         run: sbt "coreJVM/test"
 
@@ -35,6 +38,9 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'sbt'
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
 
       - name: Install Scala Native toolchain
         run: |

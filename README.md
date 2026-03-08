@@ -25,7 +25,7 @@ sbt "replJVM/run"
 ```
 
 ```
-SPnuts 2.0.0-SNAPSHOT (Scala reimplementation)
+SPnuts 0.1-SNAPSHOT (Scala reimplementation)
 Thanks to Tomatsu-san for the original Pnuts.
 Type :quit to exit, :help for commands.
 pnuts> 1 + 2

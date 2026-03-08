@@ -3,7 +3,7 @@ import scalanativecrossproject.ScalaNativeCrossPlugin.autoImport.NativePlatform
 
 ThisBuild / scalaVersion := "3.3.1"
 ThisBuild / organization := "org.spnuts"
-ThisBuild / version      := "2.0.0-SNAPSHOT"
+ThisBuild / version      := "0.1-SNAPSHOT"
 
 ThisBuild / scalacOptions ++= Seq(
   "-unchecked",
