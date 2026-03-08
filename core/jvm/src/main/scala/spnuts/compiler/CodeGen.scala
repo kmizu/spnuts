@@ -497,13 +497,77 @@ class CodeGen(mv: MethodVisitor, scope: ScopeAnalyzer.ScopeInfo, slotBase: Int =
 
     // ── Switch ────────────────────────────────────────────────────────────────
 
-    case SwitchExpr(target, cases, pos) =>
+    case SwitchExpr(target, cases, _) =>
+      val targetSlot   = nextSlot.getAndIncrement()
+      val resultSlot   = nextSlot.getAndIncrement()
+      val matchedSlot  = nextSlot.getAndIncrement()
+      val endLabel     = new Label
+      val breakHdlr    = new Label
+      val switchStart  = new Label
+      val switchEnd    = new Label
       compileExpr(target)
-      compileArgArray(cases.flatMap(c => c.labels.map(l => l.getOrElse(NullLit(pos))) ++ List(c.body)))
-      mv.visitVarInsn(ALOAD, 0)
-      mv.visitLdcInsn(pos.file); mv.visitLdcInsn(pos.line); mv.visitLdcInsn(pos.column)
-      mv.visitMethodInsn(INVOKESTATIC, HELPER_CLS, "execSwitch",
-        "(Ljava/lang/Object;[Ljava/lang/Object;L" + CTX_CLS + ";Ljava/lang/String;II)Ljava/lang/Object;", false)
+      mv.visitVarInsn(ASTORE, targetSlot)
+      mv.visitInsn(ACONST_NULL); mv.visitVarInsn(ASTORE, resultSlot)
+      mv.visitInsn(ICONST_0);    mv.visitVarInsn(ISTORE, matchedSlot)
+      mv.visitLabel(switchStart)
+      for c <- cases do
+        val bodyLabel = new Label; val skipLabel = new Label
+        // If already matched, jump directly to body (fallthrough)
+        mv.visitVarInsn(ILOAD, matchedSlot)
+        mv.visitJumpInsn(IFNE, bodyLabel)
+        // Check each label
+        c.labels.foreach {
+          case None =>  // default
+            mv.visitInsn(ICONST_1); mv.visitVarInsn(ISTORE, matchedSlot)
+            mv.visitJumpInsn(GOTO, bodyLabel)
+          case Some(labelExpr) =>
+            mv.visitVarInsn(ALOAD, targetSlot)
+            compileExpr(labelExpr)
+            callOperatorsBool("eq", 2)
+            mv.visitJumpInsn(IFNE, bodyLabel)
+        }
+        mv.visitJumpInsn(GOTO, skipLabel)
+        mv.visitLabel(bodyLabel)
+        mv.visitInsn(ICONST_1); mv.visitVarInsn(ISTORE, matchedSlot)
+        compileExpr(c.body)
+        mv.visitVarInsn(ASTORE, resultSlot)
+        mv.visitLabel(skipLabel)
+      mv.visitLabel(switchEnd)
+      mv.visitJumpInsn(GOTO, endLabel)
+      // Break handler: capture break value
+      mv.visitLabel(breakHdlr)
+      mv.visitMethodInsn(INVOKEVIRTUAL, BREAK_EX, "value", "()Ljava/lang/Object;", false)
+      mv.visitVarInsn(ASTORE, resultSlot)
+      mv.visitTryCatchBlock(switchStart, switchEnd, breakHdlr, BREAK_EX)
+      mv.visitLabel(endLabel)
+      mv.visitVarInsn(ALOAD, resultSlot)
+
+    // ── Foreach (alternate for-each syntax) ───────────────────────────────────
+
+    case ForeachExpr(varName, iterable, body, _) =>
+      // Same as ForEachExpr with a single loop variable
+      compileExpr(iterable)
+      val iterSlot  = nextSlot.getAndIncrement()
+      val itSlot    = nextSlot.getAndIncrement()
+      val resultSlot = nextSlot.getAndIncrement()
+      val startLabel = new Label; val endLabel = new Label
+      mv.visitVarInsn(ASTORE, iterSlot)
+      mv.visitInsn(ACONST_NULL); mv.visitVarInsn(ASTORE, resultSlot)
+      mv.visitVarInsn(ALOAD, iterSlot)
+      mv.visitMethodInsn(INVOKESTATIC, HELPER_CLS, "makeIterator",
+        "(Ljava/lang/Object;)Ljava/util/Iterator;", false)
+      mv.visitVarInsn(ASTORE, itSlot)
+      mv.visitLabel(startLabel)
+      mv.visitVarInsn(ALOAD, itSlot)
+      mv.visitMethodInsn(INVOKEINTERFACE, "java/util/Iterator", "hasNext", "()Z", true)
+      mv.visitJumpInsn(IFEQ, endLabel)
+      mv.visitVarInsn(ALOAD, itSlot)
+      mv.visitMethodInsn(INVOKEINTERFACE, "java/util/Iterator", "next", "()Ljava/lang/Object;", true)
+      storeVar(varName, isVoid = true)
+      compileLoopBody(body, startLabel, endLabel, resultSlot)
+      mv.visitJumpInsn(GOTO, startLabel)
+      mv.visitLabel(endLabel)
+      mv.visitVarInsn(ALOAD, resultSlot)
 
     // ── Try / catch / finally ─────────────────────────────────────────────────
 

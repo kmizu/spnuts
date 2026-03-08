@@ -291,3 +291,40 @@ class CompilerSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll:
       result
     """)
   }
+
+  // ── Switch ────────────────────────────────────────────────────────────────────
+
+  it should "compile switch with break" in {
+    bothEqual("""
+      x = 2
+      switch (x) {
+        case 1: "one"; break
+        case 2: "two"; break
+        case 3: "three"; break
+        default: "other"
+      }
+    """)
+  }
+
+  it should "compile switch with default" in {
+    bothEqual("""
+      x = 99
+      switch (x) {
+        case 1: "one"; break
+        default: "other"
+      }
+    """)
+  }
+
+  it should "compile switch with fallthrough" in {
+    bothEqual("""
+      x = 1
+      result = ""
+      switch (x) {
+        case 1: result = result + "a"
+        case 2: result = result + "b"; break
+        case 3: result = result + "c"; break
+      }
+      result
+    """)
+  }
