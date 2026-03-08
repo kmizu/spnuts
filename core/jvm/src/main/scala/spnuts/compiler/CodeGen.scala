@@ -439,7 +439,7 @@ class CodeGen(mv: MethodVisitor, scope: ScopeAnalyzer.ScopeInfo, slotBase: Int =
 
     // ── Function definition ───────────────────────────────────────────────────
 
-    case fd @ FuncDef(name, params, varargs, body, pos) =>
+    case fd @ FuncDef(name, params, varargs, body, pos, _, _, _) =>
       // For closures that capture from outer scope or complex bodies,
       // delegate to the Interpreter at runtime. (Simpler than compiling nested classes.)
       // We generate code that calls a runtime helper to create a PnutsFunc.

@@ -59,7 +59,7 @@ object ScopeAnalyzer:
         targets.foreach(t => writes += t.name)
         collectWrites(rhs, outerParams, writes, captured, hasClosure)
 
-      case FuncDef(_, innerParams, _, innerBody, _) =>
+      case FuncDef(_, innerParams, _, innerBody, _, _, _, _) =>
         // Names referenced in this closure that belong to the outer scope
         hasClosure()
         val frees = freeVarsOf(innerBody, innerParams.toSet)
@@ -126,7 +126,7 @@ object ScopeAnalyzer:
       case Ident(name, _) if !bound(name) => acc += name
       case Assignment(_, Ident(name, _), rhs, _) =>
         collectFreeRefs(rhs, bound, acc)
-      case FuncDef(_, ps, _, body, _) =>
+      case FuncDef(_, ps, _, body, _, _, _, _) =>
         collectFreeRefs(body, bound ++ ps, acc)
       case Block(es, _)    => es.foreach(collectFreeRefs(_, bound, acc))
       case ExprList(es, _) => es.foreach(collectFreeRefs(_, bound, acc))

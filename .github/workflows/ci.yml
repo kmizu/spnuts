@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-jvm:
+    name: JVM Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'sbt'
+
+      - name: Run JVM tests
+        run: sbt "coreJVM/test"
+
+  test-native:
+    name: Scala Native Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'sbt'
+
+      - name: Install Scala Native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld libunwind-dev
+
+      - name: Run Scala Native tests
+        run: sbt "coreNative/test"
