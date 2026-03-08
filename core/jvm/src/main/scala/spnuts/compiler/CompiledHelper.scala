@@ -167,8 +167,13 @@ object CompiledHelper:
     ctx.declareVar(name, value, immutable, staticType)
     value
 
-  // ── Function stub ─────────────────────────────────────────────────────────
+  // ── Function creation ─────────────────────────────────────────────────────
 
-  def defineFuncStub(ctx: Context): Any =
-    // FuncDef nodes are pre-registered by Compiler.compileScript before exec is called.
-    null
+  /**
+   * Called by compiled bytecode for every FuncDef node.
+   * Retrieves the AST from FuncDefRegistry and evaluates it via the interpreter,
+   * which creates a PnutsFunc with the correct lexical scope capture.
+   */
+  def createFunc(id: Int, ctx: Context): Any =
+    val fd = FuncDefRegistry.get(id)
+    Interpreter.eval(fd, ctx)

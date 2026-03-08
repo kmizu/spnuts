@@ -213,3 +213,81 @@ class CompilerSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll:
   it should "compile val at top level" in {
     bothEqual("val answer = 21 * 2; answer")
   }
+
+  // ── Closures ──────────────────────────────────────────────────────────────────
+
+  it should "compile closure assigned to variable" in {
+    bothEqual("""
+      double = { x -> x * 2 }
+      double(21)
+    """)
+  }
+
+  it should "compile higher-order function with closure" in {
+    bothEqual("""
+      function apply(f, x) { f(x) }
+      apply({ n -> n + 1 }, 41)
+    """)
+  }
+
+  it should "compile closure capturing outer variable" in {
+    bothEqual("""
+      base = 100
+      addBase = { x -> x + base }
+      addBase(42)
+    """)
+  }
+
+  it should "compile function returning a closure" in {
+    bothEqual("""
+      function makeAdder(n) { { x -> x + n } }
+      add5 = makeAdder(5)
+      add5(37)
+    """)
+  }
+
+  // ── Break / continue ──────────────────────────────────────────────────────────
+
+  it should "compile while loop with break" in {
+    bothEqual("""
+      i = 0
+      while (true) {
+        if (i >= 5) break
+        i = i + 1
+      }
+      i
+    """)
+  }
+
+  it should "compile for loop with break returning value" in {
+    bothEqual("""
+      result = 0
+      i = 0
+      while (i < 100) {
+        if (i == 42) { break i }
+        i = i + 1
+      }
+      i
+    """)
+  }
+
+  it should "compile for-each with continue" in {
+    bothEqual("""
+      sum = 0
+      for (x : [1, 2, 3, 4, 5, 6]) {
+        if (x % 2 == 0) continue
+        sum = sum + x
+      }
+      sum
+    """)
+  }
+
+  it should "compile C-style for loop with break" in {
+    bothEqual("""
+      result = -1
+      for (i = 0; i < 10; i++) {
+        if (i == 7) { result = i; break }
+      }
+      result
+    """)
+  }

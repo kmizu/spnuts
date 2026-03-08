@@ -46,14 +46,7 @@ object Compiler:
       val bytes = buildClass(className, Nil, exprs)
       val cls = loader.define(className.replace('/', '.'), bytes)
       val execMethod = cls.getMethod("exec", classOf[Context])
-      // Pre-register top-level function definitions via the interpreter.
-      // The compiled stub for FuncDef just returns null, so we evaluate FuncDef
-      // nodes ahead of time so functions are available when the compiled body runs.
-      val topFuncs = exprs.exprs.collect { case fd: FuncDef => fd }
-      Some { ctx =>
-        for fd <- topFuncs do Interpreter.eval(fd, ctx)
-        execMethod.invoke(null, ctx)
-      }
+      Some(ctx => execMethod.invoke(null, ctx))
     catch
       case _: UnsupportedOperationException => None
       case e: Exception =>
@@ -214,3 +207,21 @@ object Compiler:
 class SpnutsClassLoader(parent: ClassLoader) extends ClassLoader(parent):
   def define(name: String, bytes: Array[Byte]): Class[?] =
     defineClass(name, bytes, 0, bytes.length)
+
+// ── FuncDef registry ──────────────────────────────────────────────────────────
+
+/**
+ * Global registry mapping integer IDs to FuncDef AST nodes.
+ * Compiled code stores a FuncDef here at compile time and retrieves it at
+ * runtime to create a PnutsFunc (with proper lexical-scope capture).
+ */
+object FuncDefRegistry:
+  private val registry = new java.util.concurrent.ConcurrentHashMap[Int, spnuts.ast.FuncDef]()
+  private val counter  = new java.util.concurrent.atomic.AtomicInteger(0)
+
+  def register(fd: spnuts.ast.FuncDef): Int =
+    val id = counter.getAndIncrement()
+    registry.put(id, fd)
+    id
+
+  def get(id: Int): spnuts.ast.FuncDef = registry.get(id)

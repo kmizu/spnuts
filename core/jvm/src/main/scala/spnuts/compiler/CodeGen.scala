@@ -229,34 +229,38 @@ class CodeGen(mv: MethodVisitor, scope: ScopeAnalyzer.ScopeInfo, slotBase: Int =
 
     case WhileExpr(cond, body, _) =>
       val startLabel = new Label; val endLabel = new Label
+      val resultSlot = nextSlot.getAndIncrement()
+      mv.visitInsn(ACONST_NULL); mv.visitVarInsn(ASTORE, resultSlot)
       mv.visitLabel(startLabel)
       compileExpr(cond)
       callOperatorsToBoolean()
       mv.visitJumpInsn(IFEQ, endLabel)
-      compileStmt(body)
+      compileLoopBody(body, startLabel, endLabel, resultSlot)
       mv.visitJumpInsn(GOTO, startLabel)
       mv.visitLabel(endLabel)
-      mv.visitInsn(ACONST_NULL)
+      mv.visitVarInsn(ALOAD, resultSlot)
 
     case DoWhileExpr(body, cond, _) =>
-      val startLabel = new Label
+      val startLabel = new Label; val endLabel = new Label
+      val resultSlot = nextSlot.getAndIncrement()
+      mv.visitInsn(ACONST_NULL); mv.visitVarInsn(ASTORE, resultSlot)
       mv.visitLabel(startLabel)
-      compileStmt(body)
+      compileLoopBody(body, startLabel, endLabel, resultSlot)
       compileExpr(cond)
       callOperatorsToBoolean()
       mv.visitJumpInsn(IFNE, startLabel)
-      mv.visitInsn(ACONST_NULL)
+      mv.visitLabel(endLabel)
+      mv.visitVarInsn(ALOAD, resultSlot)
 
     case ForEachExpr(vars, iterable, body, _) =>
       compileExpr(iterable)
       val iterSlot = nextSlot.getAndIncrement()
       mv.visitVarInsn(ASTORE, iterSlot)
-      val iterableSlot = iterSlot
-      // delegate to runtime helper for iteration
       val varName = vars.head
       val startLabel = new Label; val endLabel = new Label
-      // Get iterator from iterable (helper returns Iterator or null when done)
-      mv.visitVarInsn(ALOAD, iterableSlot)
+      val resultSlot = nextSlot.getAndIncrement()
+      mv.visitInsn(ACONST_NULL); mv.visitVarInsn(ASTORE, resultSlot)
+      mv.visitVarInsn(ALOAD, iterSlot)
       mv.visitMethodInsn(INVOKESTATIC, HELPER_CLS, "makeIterator",
         "(Ljava/lang/Object;)Ljava/util/Iterator;", false)
       val itSlot = nextSlot.getAndIncrement()
@@ -267,16 +271,17 @@ class CodeGen(mv: MethodVisitor, scope: ScopeAnalyzer.ScopeInfo, slotBase: Int =
       mv.visitJumpInsn(IFEQ, endLabel)
       mv.visitVarInsn(ALOAD, itSlot)
       mv.visitMethodInsn(INVOKEINTERFACE, "java/util/Iterator", "next", "()Ljava/lang/Object;", true)
-      // store to loop var
       storeVar(varName, isVoid = true)
-      compileStmt(body)
+      compileLoopBody(body, startLabel, endLabel, resultSlot)
       mv.visitJumpInsn(GOTO, startLabel)
       mv.visitLabel(endLabel)
-      mv.visitInsn(ACONST_NULL)
+      mv.visitVarInsn(ALOAD, resultSlot)
 
     case ForExpr(init, cond, update, body, _) =>
       init.foreach(compileStmt)
-      val startLabel = new Label; val endLabel = new Label
+      val startLabel = new Label; val updateLabel = new Label; val endLabel = new Label
+      val resultSlot = nextSlot.getAndIncrement()
+      mv.visitInsn(ACONST_NULL); mv.visitVarInsn(ASTORE, resultSlot)
       mv.visitLabel(startLabel)
       cond match
         case Some(c) =>
@@ -284,11 +289,12 @@ class CodeGen(mv: MethodVisitor, scope: ScopeAnalyzer.ScopeInfo, slotBase: Int =
           callOperatorsToBoolean()
           mv.visitJumpInsn(IFEQ, endLabel)
         case None => ()
-      compileStmt(body)
+      compileLoopBody(body, updateLabel, endLabel, resultSlot)
+      mv.visitLabel(updateLabel)
       update.foreach(compileStmt)
       mv.visitJumpInsn(GOTO, startLabel)
       mv.visitLabel(endLabel)
-      mv.visitInsn(ACONST_NULL)
+      mv.visitVarInsn(ALOAD, resultSlot)
 
     // ── Control-flow exceptions ────────────────────────────────────────────────
 
@@ -439,16 +445,14 @@ class CodeGen(mv: MethodVisitor, scope: ScopeAnalyzer.ScopeInfo, slotBase: Int =
 
     // ── Function definition ───────────────────────────────────────────────────
 
-    case fd @ FuncDef(name, params, varargs, body, pos, _, _, _) =>
-      // For closures that capture from outer scope or complex bodies,
-      // delegate to the Interpreter at runtime. (Simpler than compiling nested classes.)
-      // We generate code that calls a runtime helper to create a PnutsFunc.
-      // The body AST is stored in a static field of the generated class.
-      // For now: serialize name, params, varargs; defer body to interpreter path.
+    case fd @ FuncDef(_, _, _, _, _, _, _, _) =>
+      // Register the FuncDef AST in the global registry; at runtime the interpreter
+      // creates a proper PnutsFunc with the current lexical scope captured.
+      val id = FuncDefRegistry.register(fd)
+      mv.visitLdcInsn(id)
       mv.visitVarInsn(ALOAD, 0)  // ctx
-      mv.visitMethodInsn(INVOKESTATIC, HELPER_CLS, "defineFuncStub",
-        "(L" + CTX_CLS + ";)Ljava/lang/Object;", false)
-      // This is a stub — the real compilation of FuncDef is done in Compiler.compileFuncDef
+      mv.visitMethodInsn(INVOKESTATIC, HELPER_CLS, "createFunc",
+        "(IL" + CTX_CLS + ";)Ljava/lang/Object;", false)
 
     // ── Java interop ─────────────────────────────────────────────────────────
 
@@ -615,6 +619,38 @@ class CodeGen(mv: MethodVisitor, scope: ScopeAnalyzer.ScopeInfo, slotBase: Int =
   def compileStmt(expr: Expr): Unit =
     compileExpr(expr)
     mv.visitInsn(POP)
+
+  /**
+   * Compile a loop body with break/continue exception handling.
+   * @param body        the loop body expression
+   * @param continueTarget label to jump to on `continue` (start of update / start of condition)
+   * @param breakTarget   label to jump to on `break` (loop end)
+   * @param resultSlot    JVM local slot storing the loop's result value (set on break)
+   */
+  private def compileLoopBody(body: Expr, continueTarget: Label, breakTarget: Label,
+                               resultSlot: Int): Unit =
+    val bodyStart   = new Label
+    val bodyEnd     = new Label
+    val normalEnd   = new Label
+    val breakHdlr   = new Label
+    val contHdlr    = new Label
+    mv.visitLabel(bodyStart)
+    compileStmt(body)
+    mv.visitLabel(bodyEnd)
+    mv.visitJumpInsn(GOTO, normalEnd)  // normal flow: skip exception handlers
+    // Catch BreakException: store value, jump to end
+    mv.visitLabel(breakHdlr)
+    mv.visitMethodInsn(INVOKEVIRTUAL, BREAK_EX, "value", "()Ljava/lang/Object;", false)
+    mv.visitVarInsn(ASTORE, resultSlot)
+    mv.visitJumpInsn(GOTO, breakTarget)
+    // Catch ContinueException: jump to continue target (next iteration)
+    mv.visitLabel(contHdlr)
+    mv.visitInsn(POP)  // discard the ContinueException singleton
+    mv.visitJumpInsn(GOTO, continueTarget)
+    mv.visitLabel(normalEnd)
+    // Register exception table entries
+    mv.visitTryCatchBlock(bodyStart, bodyEnd, breakHdlr, BREAK_EX)
+    mv.visitTryCatchBlock(bodyStart, bodyEnd, contHdlr, "spnuts/runtime/ContinueException$")
 
   /** Call Operators method returning Object (arithmetic ops). */
   private def callOperators(methodName: String, argc: Int): Unit =
