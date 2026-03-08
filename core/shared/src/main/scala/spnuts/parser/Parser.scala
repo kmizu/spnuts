@@ -29,6 +29,9 @@ private val TK = TokenKind
  */
 final class Parser(tokens: IndexedSeq[Token]):
   private var cursor = 0
+  // Tracks a "split" >> token: when >> is seen in type-arg closing context, we consume it
+  // as one > and set pendingGt=true so the outer type arg close sees the second >.
+  private var pendingGt: Boolean = false
 
   // ── public entry points ────────────────────────────────────────────────────
 
@@ -326,6 +329,8 @@ final class Parser(tokens: IndexedSeq[Token]):
 
       case TK.New        => parseNew(pos)
       case TK.Function   => parseFuncDef(pos, named = true)
+      case TK.Val        => parseVarDecl(pos, DeclKind.Val)
+      case TK.Var        => parseVarDecl(pos, DeclKind.Var)
       case TK.Class      => parseClassRef(pos)
       case TK.Record     => parseRecordDef(pos)
       case TK.If         => parseIf(pos)
@@ -388,24 +393,164 @@ final class Parser(tokens: IndexedSeq[Token]):
   private def parseFuncDef(pos: SourcePos, named: Boolean): Expr =
     expect(TK.Function)
     val name = if named && check(TK.Ident) then Some(advance().image) else None
+    // Parse optional generic type parameters: `<T>` or `<T, U>`
+    val typeParams = parseTypeParamList()
     expect(TK.LParen)
-    val (params, varargs) = parseParamList()
+    val (params, varargs, paramTypes) = parseParamList(typeParams.toSet)
     expect(TK.RParen)
+    val returnType = if check(TK.Colon) then { advance(); Some(parseTypeName(typeParams.toSet)) } else None
+    // Validate: if any annotation is present, ALL params and return type must be annotated
+    val hasAnyAnnotation = paramTypes.exists(_.isDefined) || returnType.isDefined
+    if hasAnyAnnotation then
+      val missingParam = paramTypes.zipWithIndex.find(_._1.isEmpty).map(_._2)
+      missingParam.foreach { i =>
+        throw ParseError(s"Parameter '${params(i)}' is missing a type annotation; annotate all parameters or none", pos)
+      }
+      if returnType.isEmpty then
+        throw ParseError(s"Return type annotation required when parameters are typed", pos)
     skipEols()
     val body = parseBlock()
-    FuncDef(name, params, varargs, body, pos)
+    FuncDef(name, params, varargs, body, pos, typeParams, paramTypes, returnType)
 
-  private def parseParamList(): (List[String], Boolean) =
-    val params  = collection.mutable.ListBuffer.empty[String]
-    var varargs = false
+  /** Parse `<T>` or `<T, U, ...>` type parameter list; returns Nil if absent. */
+  private def parseTypeParamList(): List[String] =
+    if !check(TK.Lt) then return Nil
+    // Disambiguate: `<` here starts type params only if followed by Ident then `>` or `,`
+    // Peek ahead to detect `<Ident(>|,|whitespace)` pattern
+    val saved = cursor
+    advance() // consume `<`
+    val buf = collection.mutable.ListBuffer.empty[String]
+    if !check(TK.Ident) then { cursor = saved; return Nil }
+    buf += advance().image
+    while check(TK.Comma) do
+      advance()
+      if !check(TK.Ident) then { cursor = saved; return Nil }
+      buf += advance().image
+    if !check(TK.Gt) then { cursor = saved; return Nil }
+    advance() // consume `>`
+    buf.toList
+
+  /**
+   * Parse a type expression. Supported forms:
+   *   - `String`, `java.util.List`, `List<T>`, `Map<String, Long>` — plain / generic types
+   *   - `?`                                                         — wildcard
+   *   - `(A, B) -> C`, `() -> C`                                   — function types
+   *   - `A -> C`                                                    — single-param function type
+   *
+   * @param typeVars  in-scope generic type variable names (e.g. Set("T", "U"))
+   * @param noArrow   if true, do not parse `A -> B` shorthand (used in closure param position)
+   */
+  private def parseTypeName(typeVars: Set[String] = Set.empty, noArrow: Boolean = false): TypeExpr =
+    // Wildcard `?`
+    if check(TK.Question) then
+      advance()
+      return TypeExpr.Wildcard
+
+    // Function type starting with `(` — could be `() -> C`, `(A, B) -> C`, or `(A, B*) -> C`
+    if check(TK.LParen) then
+      val saved = cursor
+      advance() // consume `(`
+      val fixedParams  = collection.mutable.ListBuffer.empty[TypeExpr]
+      var varargElem: Option[TypeExpr] = None
+      if !check(TK.RParen) then
+        // Parse first param; if followed by `*` it is the vararg element type
+        val first = parseTypeName(typeVars)
+        if check(TK.Star) then
+          advance(); varargElem = Some(first)
+        else
+          fixedParams += first
+          while check(TK.Comma) && varargElem.isEmpty do
+            advance()
+            val t = parseTypeName(typeVars)
+            if check(TK.Star) then
+              advance(); varargElem = Some(t)
+            else
+              fixedParams += t
+      if check(TK.RParen) then
+        advance() // consume `)`
+        if check(TK.Arrow) then
+          advance() // consume `->`
+          val ret = parseTypeName(typeVars)
+          return varargElem match
+            case Some(ve) => TypeExpr.funcVararg(fixedParams.toList, ve, ret)
+            case None     => TypeExpr.func(fixedParams.toList, ret)
+      // Not a function type — backtrack and fall through to plain-type parsing
+      cursor = saved
+
+    // Plain / generic type: Ident ('.' Ident)* ('<' TypeExpr (',' TypeExpr)* '>')?
+    val parts = collection.mutable.ListBuffer[String]()
+    parts += expect(TK.Ident).image
+    while check(TK.Dot) && peek().kind == TK.Ident do
+      advance(); parts += advance().image
+
+    // Optional type arguments `<...>`
+    val typeArgs = if check(TK.Lt) then
+      val savedC = cursor; val savedPG = pendingGt
+      advance() // consume `<`
+      val args = collection.mutable.ListBuffer.empty[TypeExpr]
+      args += parseTypeName(typeVars)
+      while check(TK.Comma) do
+        advance()
+        args += parseTypeName(typeVars)
+      // Handle `>` close, or `>>` split (nested generics like List<List<Long>>)
+      if pendingGt then
+        pendingGt = false  // consume the second `>` from a previously split `>>`
+        args.toList
+      else if check(TK.Gt) then
+        advance() // consume `>`
+        args.toList
+      else if check(TK.Shr) then
+        // `>>` — consume it and mark that the outer type-arg close should see a `>`
+        advance(); pendingGt = true
+        args.toList
+      else
+        cursor = savedC; pendingGt = savedPG  // backtrack — `<` was a comparison operator
+        Nil
+    else Nil
+
+    var base = TypeExpr(parts.toList, typeArgs)
+
+    // Single-param shorthand: `A -> C`  (only after a plain non-generic, non-array type)
+    // Suppressed when noArrow=true (closure param type context: `{ x: Long -> body }`)
+    if !noArrow && typeArgs.isEmpty && check(TK.Arrow) then
+      advance() // consume `->`
+      val ret = parseTypeName(typeVars)
+      return TypeExpr.func(List(base), ret)
+
+    // Array suffix: `Long[]`, `List<String>[]`, `Long[][]`
+    while check(TK.LBracket) && peek().kind == TK.RBracket do
+      advance(); advance()
+      base = TypeExpr.array(base)
+
+    base
+
+  private def parseParamList(typeVars: Set[String] = Set.empty): (List[String], Boolean, List[Option[TypeExpr]]) =
+    val params      = collection.mutable.ListBuffer.empty[String]
+    val paramTypes  = collection.mutable.ListBuffer.empty[Option[TypeExpr]]
+    var varargs     = false
     while !check(TK.RParen) do
       val name = expect(TK.Ident).image
       params += name
-      if check(TK.LBracket) && peek().kind == TK.RBracket then
-        advance(); advance(); varargs = true
+      val tpe = if check(TK.Colon) then { advance(); Some(parseTypeName(typeVars)) } else None
+      // `name: Long*` — trailing * marks varargs parameter (element type = Long)
+      if tpe.isDefined && check(TK.Star) then
+        advance(); varargs = true; paramTypes += tpe
+      // legacy `name[]` — unannotated varargs (will be caught by annotation consistency check)
+      else if tpe.isEmpty && check(TK.LBracket) && peek().kind == TK.RBracket then
+        advance(); advance(); varargs = true; paramTypes += None
       else
+        paramTypes += tpe
         eat(TK.Comma); ()
-    (params.toList, varargs)
+    (params.toList, varargs, paramTypes.toList)
+
+  /** Parse `val name [: Type] = expr` or `var name [: Type] = expr`. */
+  private def parseVarDecl(pos: SourcePos, kind: DeclKind): VarDecl =
+    advance()  // consume 'val' or 'var'
+    val name = expect(TK.Ident).image
+    val typeName = if check(TK.Colon) then { advance(); Some(parseTypeName()) } else None
+    expect(TK.Assign)
+    val value = expression()
+    VarDecl(kind, name, typeName, value, pos)
 
   private def parseBlock(): Expr =
     val pos = current.pos
@@ -451,10 +596,11 @@ final class Parser(tokens: IndexedSeq[Token]):
       case _: ParseError => cursor = saved; None
 
   private def tryParseClosure(pos: SourcePos): Option[FuncDef] =
-    // { [id [, id]*] -> body }
+    // { [id [: Type] [, id [: Type]]*] -> body }
     val saved = cursor
     try
       val params = collection.mutable.ListBuffer.empty[String]
+      val paramTypes = collection.mutable.ListBuffer.empty[Option[TypeExpr]]
       var varargs = false
       // Zero-param closure: starts immediately with ->
       if check(TK.Arrow) then
@@ -464,19 +610,31 @@ final class Parser(tokens: IndexedSeq[Token]):
         expect(TK.RBrace)
         return Some(FuncDef(None, Nil, false, Block(body, pos), pos))
       if check(TK.Ident) then
-        params += advance().image
-        while check(TK.Comma) do
+        val firstName = advance().image
+        // Optional type annotation: `name: Type` — noArrow prevents `Long -> body` ambiguity
+        val firstType = if check(TK.Colon) then { advance(); Some(parseTypeName(noArrow = true)) } else None
+        // Optional varargs: `name: Long*`
+        if firstType.isDefined && check(TK.Star) then
+          advance(); varargs = true
+        params += firstName
+        paramTypes += firstType
+        while !varargs && check(TK.Comma) do
           advance()
           if check(TK.LBracket) && peek().kind == TK.RBracket then
-            advance(); advance(); varargs = true
+            advance(); advance(); varargs = true; paramTypes += None
           else
-            params += expect(TK.Ident).image
+            val pname = expect(TK.Ident).image
+            val ptype = if check(TK.Colon) then { advance(); Some(parseTypeName(noArrow = true)) } else None
+            if ptype.isDefined && check(TK.Star) then
+              advance(); varargs = true
+            params += pname
+            paramTypes += ptype
         if check(TK.Arrow) then
           advance()
           skipEols()
           val body = parseExprList()
           expect(TK.RBrace)
-          return Some(FuncDef(None, params.toList, varargs, Block(body, pos), pos))
+          return Some(FuncDef(None, params.toList, varargs, Block(body, pos), pos, paramTypes = paramTypes.toList))
       cursor = saved
       None
     catch

@@ -53,10 +53,26 @@ final class Context(
     stackFrame match
       case Some(frame) =>
         frame.lookup(name) match
-          case Some(b) => b.value = value
-          case None    => frame.declare(name, value)
+          case Some(b) => b.set(value, name)
+          case None    =>
+            // Check package chain before creating a new local (Pnuts semantics: assignment
+            // modifies an existing binding anywhere in scope, else creates local)
+            currentPackage.lookup(name).orElse(PnutsPackage.global.lookup(name)) match
+              case Some(b) => b.set(value, name)
+              case None    => frame.declare(name, value)
       case None =>
         currentPackage.set(name, value)
+
+  /**
+   * Declare a new variable in the current scope with optional immutability.
+   * Used by `val`/`var` declarations.
+   */
+  def declareVar(name: String, value: Any, immutable: Boolean, staticType: Option[Class[?]] = None): Unit =
+    stackFrame match
+      case Some(frame) =>
+        frame.declareTyped(name, value, immutable, staticType)
+      case None =>
+        currentPackage.set(name, value)  // top-level: always mutable
 
   /**
    * Open a new function call frame.

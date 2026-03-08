@@ -20,6 +20,111 @@ enum AssignOp:
   case AndAssign, OrAssign, XorAssign
   case ShiftLeftAssign, ShiftRightAssign, UnsignedShiftRightAssign
 
+enum DeclKind:
+  case Val, Var
+
+// ── Type expressions ──────────────────────────────────────────────────────────
+
+/**
+ * A type reference, possibly parameterized, or a function type.
+ *
+ * Regular types:
+ *   - `String`              → TypeExpr(List("String"), Nil)
+ *   - `java.util.List`      → TypeExpr(List("java","util","List"), Nil)
+ *   - `List<String>`        → TypeExpr(List("List"), List(TypeExpr(List("String"), Nil)))
+ *   - `Map<String,Integer>` → TypeExpr(List("Map"), List(..., ...))
+ *   - `T` (type variable)   → TypeExpr(List("T"), Nil) — resolved via typeParams bindings
+ *   - `?` (wildcard)        → TypeExpr(List("?"), Nil)
+ *
+ * Array types — encoded with name == List("[]"):
+ *   - `Long[]`              → TypeExpr(List("[]"), List(TypeExpr(List("Long"), Nil)))
+ *   - `String[][]`          → TypeExpr(List("[]"), List(TypeExpr(List("[]"), List(StringTE))))
+ *
+ * Fixed-arity function type — encoded with name == List("->"):
+ *   - `(Long, String) -> Boolean`  → TypeExpr(List("->"), List(LongTE, StringTE, BoolTE))
+ *   - `() -> Long`                 → TypeExpr(List("->"), List(LongTE))
+ *   Convention: typeArgs = fixedParamTypes :+ returnType
+ *
+ * Varargs function type — encoded with name == List("->*"):
+ *   - `(Long*) -> Long`            → TypeExpr(List("->*"), List(LongTE, LongTE))
+ *   - `(String, Long*) -> Long`    → TypeExpr(List("->*"), List(StringTE, LongTE, LongTE))
+ *   Convention: typeArgs = fixedParamTypes :+ varargElemType :+ returnType
+ *   (last element = returnType, second-to-last = vararg element type, rest = fixed params)
+ */
+case class TypeExpr(name: List[String], typeArgs: List[TypeExpr] = Nil):
+  def toDisplayString: String =
+    if TypeExpr.isArrayType(this) then
+      TypeExpr.arrayElemType(this).toDisplayString + "[]"
+    else if TypeExpr.isFuncType(this) then
+      val params = TypeExpr.funcParams(this).map(_.toDisplayString).mkString(", ")
+      val ret    = TypeExpr.funcReturn(this).toDisplayString
+      s"($params) -> $ret"
+    else if TypeExpr.isVarargFuncType(this) then
+      val fixed  = TypeExpr.varargFixedParams(this).map(_.toDisplayString)
+      val varg   = TypeExpr.varargElemType(this).toDisplayString + "*"
+      val ret    = TypeExpr.varargFuncReturn(this).toDisplayString
+      s"(${(fixed :+ varg).mkString(", ")}) -> $ret"
+    else
+      val base = name.mkString(".")
+      if typeArgs.isEmpty then base
+      else s"$base<${typeArgs.map(_.toDisplayString).mkString(", ")}>"
+
+object TypeExpr:
+  /** Wildcard type argument `?` — erases to Object at runtime. */
+  val Wildcard: TypeExpr = TypeExpr(List("?"), Nil)
+
+  // ── Array types `A[]` ──────────────────────────────────────────────────────
+
+  /** Construct an array type `elemType[]`. */
+  def array(elemType: TypeExpr): TypeExpr = TypeExpr(List("[]"), List(elemType))
+
+  /** True if this is an array type. */
+  def isArrayType(te: TypeExpr): Boolean = te.name == List("[]") && te.typeArgs.length == 1
+
+  /** Element type of an array type. */
+  def arrayElemType(te: TypeExpr): TypeExpr = te.typeArgs.head
+
+  // ── Fixed-arity function types ─────────────────────────────────────────────
+
+  /** Construct a fixed-arity function type `(paramTypes...) -> returnType`. */
+  def func(paramTypes: List[TypeExpr], returnType: TypeExpr): TypeExpr =
+    TypeExpr(List("->"), paramTypes :+ returnType)
+
+  /** True if this is a fixed-arity function type. */
+  def isFuncType(te: TypeExpr): Boolean =
+    te.name == List("->") && te.typeArgs.nonEmpty
+
+  /** Fixed parameter types of a function type. */
+  def funcParams(te: TypeExpr): List[TypeExpr] = te.typeArgs.dropRight(1)
+
+  /** Return type of a function type. */
+  def funcReturn(te: TypeExpr): TypeExpr = te.typeArgs.last
+
+  // ── Varargs function types `(A, B*) -> C` ─────────────────────────────────
+
+  /**
+   * Construct a varargs function type `(fixedParams..., varargElem*) -> returnType`.
+   * E.g. `(String, Long*) -> Long` = funcVararg(List(StringTE), LongTE, LongTE)
+   */
+  def funcVararg(fixedParams: List[TypeExpr], varargElem: TypeExpr, returnType: TypeExpr): TypeExpr =
+    TypeExpr(List("->*"), fixedParams ++ List(varargElem, returnType))
+
+  /** True if this is a varargs function type. */
+  def isVarargFuncType(te: TypeExpr): Boolean =
+    te.name == List("->*") && te.typeArgs.length >= 2
+
+  /** Fixed (non-vararg) parameter types of a varargs function type. */
+  def varargFixedParams(te: TypeExpr): List[TypeExpr] = te.typeArgs.dropRight(2)
+
+  /** The element type of the vararg parameter. */
+  def varargElemType(te: TypeExpr): TypeExpr = te.typeArgs(te.typeArgs.length - 2)
+
+  /** Return type of a varargs function type. */
+  def varargFuncReturn(te: TypeExpr): TypeExpr = te.typeArgs.last
+
+  /** Minimum arity for a varargs function type (= number of fixed params). */
+  def varargMinArity(te: TypeExpr): Int = te.typeArgs.length - 2
+
 // ── AST node base ─────────────────────────────────────────────────────────────
 
 sealed trait Expr:
@@ -56,6 +161,9 @@ case class InstanceofExpr(expr: Expr, typeName: List[String], pos: SourcePos) ex
 // ── Assignment ────────────────────────────────────────────────────────────────
 
 case class Assignment(op: AssignOp, lhs: Expr, rhs: Expr, pos: SourcePos) extends Expr
+
+/** `val name [: Type] = expr` (immutable) or `var name [: Type] = expr` (mutable). */
+case class VarDecl(kind: DeclKind, name: String, typeName: Option[TypeExpr], value: Expr, pos: SourcePos) extends Expr
 
 /** a, b = expr */
 case class MultiAssign(targets: List[Ident], rhs: Expr, pos: SourcePos) extends Expr
@@ -122,7 +230,13 @@ case class FuncDef(
   params: List[String],
   varargs: Boolean,
   body: Expr,
-  pos: SourcePos
+  pos: SourcePos,
+  /** Generic type parameter names, e.g. List("T","U") for `<T, U>`. */
+  typeParams: List[String] = Nil,
+  /** Optional type annotation for each parameter, parallel to `params`. */
+  paramTypes: List[Option[TypeExpr]] = Nil,
+  /** Optional return type annotation. */
+  returnType: Option[TypeExpr] = None
 ) extends Expr
 
 case class ReturnExpr(value: Option[Expr], pos: SourcePos) extends Expr

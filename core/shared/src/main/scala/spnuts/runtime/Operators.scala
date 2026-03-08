@@ -22,11 +22,19 @@ object Operators:
   private def isBigInt(v: Any): Boolean = v.isInstanceOf[BigInt]
 
   def toLong(v: Any): Long = v match
-    case i: Int    => i.toLong
-    case l: Long   => l
-    case i: java.lang.Integer => i.toLong
-    case l: java.lang.Long    => l.toLong
-    case b: BigInt => b.toLong
+    case i: Int                   => i.toLong
+    case l: Long                  => l
+    case s: Short                 => s.toLong
+    case b: Byte                  => b.toLong
+    case c: Char                  => c.toLong
+    case i: java.lang.Integer     => i.toLong
+    case l: java.lang.Long        => l.toLong
+    case s: java.lang.Short       => s.toLong
+    case b: java.lang.Byte        => b.toLong
+    case c: java.lang.Character   => c.charValue.toLong
+    case f: java.lang.Float       => f.toLong
+    case d: java.lang.Double      => d.toLong
+    case b: BigInt                => b.toLong
     case _         => throw new ClassCastException(s"Cannot convert $v to Long")
 
   def toDouble(v: Any): Double = v match
@@ -34,8 +42,14 @@ object Operators:
     case l: Long   => l.toDouble
     case f: Float  => f.toDouble
     case d: Double => d
-    case i: java.lang.Integer => i.toDouble
-    case l: java.lang.Long    => l.toDouble
+    case s: Short  => s.toDouble
+    case b: Byte   => b.toDouble
+    case c: Char   => c.toDouble
+    case i: java.lang.Integer   => i.toDouble
+    case l: java.lang.Long      => l.toDouble
+    case s: java.lang.Short     => s.toDouble
+    case b: java.lang.Byte      => b.toDouble
+    case c: java.lang.Character => c.charValue.toDouble
     case f: java.lang.Float   => f.toDouble
     case d: java.lang.Double  => d.toDouble
     case b: BigInt => b.toDouble

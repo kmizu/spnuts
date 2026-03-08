@@ -27,6 +27,10 @@ final class StackFrame(
   def declare(name: String, value: Any): Binding =
     currentScope.declare(name, value)
 
+  /** Declare a typed variable with optional immutability and static type. */
+  def declareTyped(name: String, value: Any, immutable: Boolean, staticType: Option[Class[?]] = None): Binding =
+    currentScope.declareTyped(name, value, immutable, staticType)
+
   /**
    * Look up a variable:
    *  1. Current scope chain (local vars + block scopes)

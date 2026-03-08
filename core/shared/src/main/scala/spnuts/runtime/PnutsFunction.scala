@@ -1,6 +1,6 @@
 package spnuts.runtime
 
-import spnuts.ast.Expr
+import spnuts.ast.{Expr, TypeExpr}
 
 // ── Callable function types ────────────────────────────────────────────────────
 
@@ -27,6 +27,12 @@ final class PnutsFunc(
   val body: Expr,
   val pkg: PnutsPackage,
   val lexicalScope: Map[String, Binding],
+  /** Generic type parameter names (e.g. List("T","U")). */
+  val typeParams: Array[String] = Array.empty,
+  /** Optional type annotation per parameter (parallel to params). None = untyped. */
+  val paramTypes: Array[Option[TypeExpr]] = Array.empty,
+  /** Optional return type annotation. */
+  val returnType: Option[TypeExpr] = None,
 ) extends AnyFunc:
   def nargs: Int = params.length
 

@@ -25,6 +25,9 @@ object JavaInterop:
     JavaInteropShim.setFieldImpl        = setField
     JavaInteropShim.resolveClassImpl    = resolveClass
     JavaInteropShim.callConstructorImpl = callConstructor
+    JavaInteropShim.newArrayImpl        = (cls, size) => java.lang.reflect.Array.newInstance(cls, size)
+    JavaInteropShim.newInstanceImpl     = cls => cls.getDeclaredConstructor().newInstance()
+    JavaInteropShim.arrayClassImpl      = cls => java.lang.reflect.Array.newInstance(cls, 0).getClass
 
   // ── Class resolution cache ─────────────────────────────────────────────────
 
@@ -37,11 +40,24 @@ object JavaInterop:
         catch case _: ClassNotFoundException => None)
     }.headOption
 
+  /**
+   * Short type alias → fully-qualified JVM class name.
+   * Handles cases where the JVM name differs from the SPnuts alias
+   * (Int→Integer, Char→Character, Unit→scala.runtime.BoxedUnit).
+   */
+  private val typeAliasToFqn: Map[String, String] = Map(
+    "Int"     -> "java.lang.Integer",
+    "Char"    -> "java.lang.Character",
+    "Unit"    -> "scala.runtime.BoxedUnit",
+  )
+
   private def buildCandidates(name: String, imports: List[String]): List[String] =
     if name.contains('.') then
       List(name) // fully qualified
     else
-      name :: imports.flatMap { imp =>
+      // Type-alias resolution first (Int→Integer, Char→Character)
+      val aliasResolved = typeAliasToFqn.get(name).toList
+      aliasResolved ::: (name :: imports.flatMap { imp =>
         if imp == "*" then Nil
         else if imp.endsWith(".*") then List(imp.dropRight(1) + name)
         else if imp.endsWith(s".$name") then List(imp)
@@ -49,7 +65,7 @@ object JavaInterop:
       } ::: List(
         s"java.lang.$name",
         s"java.util.$name",
-      )
+      ))
 
   // ── Method call ────────────────────────────────────────────────────────────
 
@@ -58,12 +74,21 @@ object JavaInterop:
     val best = selectBest(candidates, args)
     best match
       case Some(m) =>
-        m.setAccessible(true)
+        m.trySetAccessible()  // ignore failure — public methods on public classes work without it
         val coerced = coerceArgs(m.getParameterTypes, args)
         try m.invoke(target, coerced*)
         catch
           case e: java.lang.reflect.InvocationTargetException =>
             throw e.getCause
+          case _: IllegalAccessException =>
+            // Java module encapsulation: declaring class is package-private (e.g. Collections$Unmodifiable*).
+            // Find the same method via a public interface or superclass and invoke that.
+            findAccessibleVersion(m, target.getClass) match
+              case Some(am) =>
+                try am.invoke(target, coerced*)
+                catch case e: java.lang.reflect.InvocationTargetException => throw e.getCause
+              case None =>
+                throw RuntimeError(s"Method '${cls.getName}.${m.getName}' is inaccessible (Java module encapsulation)", pos)
       case None =>
         throw RuntimeError(
           s"No matching method '${cls.getName}.$method' for args (${args.map(typeOf).mkString(", ")})", pos)
@@ -84,7 +109,7 @@ object JavaInterop:
     val best = selectBestCtor(candidates, args)
     best match
       case Some(c) =>
-        c.setAccessible(true)
+        c.trySetAccessible()
         val coerced = coerceArgs(c.getParameterTypes, args)
         try c.newInstance(coerced*)
         catch
@@ -99,41 +124,58 @@ object JavaInterop:
     val cls = target.getClass
     // Try field first, then getter method
     findField(cls, member) match
-      case Some(f) => f.setAccessible(true); f.get(target)
+      case Some(f) => f.trySetAccessible(); f.get(target)
       case None =>
         val getter = s"get${member.capitalize}"
         findMethod(cls, getter, 0) match
-          case Some(m) => m.setAccessible(true); m.invoke(target)
+          case Some(m) => m.trySetAccessible(); m.invoke(target)
           case None =>
             // Boolean isX getter
             val isGetter = s"is${member.capitalize}"
             findMethod(cls, isGetter, 0) match
-              case Some(m) => m.setAccessible(true); m.invoke(target)
+              case Some(m) => m.trySetAccessible(); m.invoke(target)
               case None =>
                 throw RuntimeError(s"No field or getter '$member' on ${cls.getName}", pos)
 
   def getStaticField(cls: Class[?], member: String, pos: SourcePos): Any =
     findField(cls, member) match
-      case Some(f) => f.setAccessible(true); f.get(null) // null = static
+      case Some(f) => f.trySetAccessible(); f.get(null) // null = static
       case None =>
         // Try static method with 0 args (e.g. EnumClass.VALUE)
         findMethod(cls, member, 0) match
-          case Some(m) => m.setAccessible(true); m.invoke(null)
+          case Some(m) => m.trySetAccessible(); m.invoke(null)
           case None =>
             throw RuntimeError(s"No static field or method '$member' on ${cls.getName}", pos)
 
   def setField(target: Any, member: String, value: Any, pos: SourcePos): Unit =
     val cls = target.getClass
     findField(cls, member) match
-      case Some(f) => f.setAccessible(true); f.set(target, coerceValue(f.getType, value))
+      case Some(f) => f.trySetAccessible(); f.set(target, coerceValue(f.getType, value))
       case None =>
         val setter = s"set${member.capitalize}"
         findMethod(cls, setter, 1) match
           case Some(m) =>
-            m.setAccessible(true)
+            m.trySetAccessible()
             m.invoke(target, coerceValue(m.getParameterTypes()(0), value))
           case None =>
             throw RuntimeError(s"No field or setter '$member' on ${cls.getName}", pos)
+
+  /**
+   * Find an accessible version of a method when the declaring class is package-private
+   * (e.g. Collections$UnmodifiableCollection). Walks public interfaces and superclasses.
+   */
+  private def findAccessibleVersion(m: Method, runtimeCls: Class[?]): Option[Method] =
+    val name   = m.getName
+    val params = m.getParameterTypes
+    def search(c: Class[?]): Option[Method] =
+      if c == null then None
+      else if java.lang.reflect.Modifier.isPublic(c.getModifiers) then
+        try Some(c.getMethod(name, params*)) catch case _: NoSuchMethodException => searchParents(c)
+      else searchParents(c)
+    def searchParents(c: Class[?]): Option[Method] =
+      c.getInterfaces.iterator.flatMap(search).nextOption()
+        .orElse(search(c.getSuperclass))
+    search(runtimeCls)
 
   private def findField(cls: Class[?], name: String): Option[Field] =
     try Some(cls.getField(name))
@@ -158,12 +200,13 @@ object JavaInterop:
 
   private def numericDistance(target: Class[?], src: Class[?]): Int =
     val order = List(
-      classOf[Byte], classOf[java.lang.Byte],
+      classOf[Byte],  classOf[java.lang.Byte],
       classOf[Short], classOf[java.lang.Short],
-      classOf[Int], classOf[java.lang.Integer],
-      classOf[Long], classOf[java.lang.Long],
+      classOf[Char],  classOf[java.lang.Character],
+      classOf[Int],   classOf[java.lang.Integer],
+      classOf[Long],  classOf[java.lang.Long],
       classOf[Float], classOf[java.lang.Float],
-      classOf[Double], classOf[java.lang.Double],
+      classOf[Double],classOf[java.lang.Double],
     )
     val ti = order.indexWhere(_ == target)
     val si = order.indexWhere(_ == src)
@@ -172,9 +215,10 @@ object JavaInterop:
     else (si - ti) / 2 + 10                       // narrowing (allowed but penalized)
 
   private def isBoxedNumber(cls: Class[?]): Boolean =
-    cls == classOf[java.lang.Integer] || cls == classOf[java.lang.Long] ||
-    cls == classOf[java.lang.Double] || cls == classOf[java.lang.Float] ||
-    cls == classOf[java.lang.Short] || cls == classOf[java.lang.Byte]
+    cls == classOf[java.lang.Integer]   || cls == classOf[java.lang.Long]    ||
+    cls == classOf[java.lang.Double]    || cls == classOf[java.lang.Float]   ||
+    cls == classOf[java.lang.Short]     || cls == classOf[java.lang.Byte]    ||
+    cls == classOf[java.lang.Character]
 
   private def scoreMethod(paramTypes: Array[Class[?]], args: Array[Any]): Int =
     if paramTypes.length != args.length then return Int.MaxValue
@@ -202,15 +246,25 @@ object JavaInterop:
 
   private def coerceValue(target: Class[?], value: Any): Any =
     if target == classOf[Long] || target == classOf[java.lang.Long] then
-      spnuts.runtime.Operators.toLong(value)
+      Operators.toLong(value)
     else if target == classOf[Int] || target == classOf[java.lang.Integer] then
-      spnuts.runtime.Operators.toLong(value).toInt
+      Operators.toLong(value).toInt
+    else if target == classOf[Short] || target == classOf[java.lang.Short] then
+      Operators.toLong(value).toShort
+    else if target == classOf[Byte] || target == classOf[java.lang.Byte] then
+      Operators.toLong(value).toByte
     else if target == classOf[Double] || target == classOf[java.lang.Double] then
-      spnuts.runtime.Operators.toDouble(value)
+      Operators.toDouble(value)
     else if target == classOf[Float] || target == classOf[java.lang.Float] then
-      spnuts.runtime.Operators.toDouble(value).toFloat
+      Operators.toDouble(value).toFloat
+    else if target == classOf[Char] || target == classOf[java.lang.Character] then
+      value match
+        case c: java.lang.Character => c
+        case _                      => Operators.toLong(value).toChar
+    else if target == classOf[Boolean] || target == classOf[java.lang.Boolean] then
+      value.asInstanceOf[java.lang.Boolean]
     else if target == classOf[String] then
-      spnuts.runtime.Operators.toStr(value)
+      Operators.toStr(value)
     else value
 
   private def typeOf(v: Any): String = if v == null then "null" else v.getClass.getSimpleName

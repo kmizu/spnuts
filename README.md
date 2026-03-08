@@ -16,17 +16,77 @@ Builds for both **JVM** and **Scala Native** (cross-platform).
 - 80+ built-in functions
 - Cross-build: JVM + Scala Native
 
-## Quick Start
+## Running SPnuts
+
+### Interactive REPL
 
 ```bash
-# Run the REPL
 sbt "replJVM/run"
+```
 
-# Run tests
+```
+SPnuts 2.0.0-SNAPSHOT (Scala reimplementation)
+Powered by コウタ's PEG expertise + 戸松さんの魂
+Type :quit to exit, :help for commands.
+pnuts> 1 + 2
+3
+pnuts> function fib(n) if (n <= 1) n else fib(n-1) + fib(n-2)
+pnuts> fib(10)
+55
+pnuts> :quit
+```
+
+REPL commands:
+
+| Command | Description |
+|---------|-------------|
+| `:help` | Show help |
+| `:quit` / `:exit` / `:q` | Exit |
+
+### Running a Script File
+
+```bash
+sbt "replJVM/run path/to/script.pnuts"
+```
+
+Example — `hello.pnuts`:
+
+```pnuts
+name = "world"
+println("Hello \(name)!")
+```
+
+```bash
+sbt "replJVM/run hello.pnuts"
+# Hello world!
+```
+
+### Scala Native
+
+```bash
+# Build native binary
+sbt "replNative/nativeLink"
+
+# Run the native binary directly
+./repl/native/target/scala-3.3.1/spnuts-repl-out
+
+# Or run via sbt
+sbt "replNative/run"
+```
+
+> **Note:** The Scala Native binary has no JVM startup overhead. Java interop (`new java.util.ArrayList()` etc.) is not available in native mode.
+
+### Build & Test
+
+```bash
+# Run all JVM tests
 sbt "coreJVM/test"
 
-# Compile for Scala Native
-sbt "coreNative/compile"
+# Run all Scala Native tests
+sbt "coreNative/test"
+
+# Build everything
+sbt compile
 ```
 
 ## Language Overview
@@ -122,9 +182,9 @@ spnuts/
 ## Requirements
 
 - sbt 1.9+
-- Scala 3.3.1
-- JDK 11+
-- (Optional) Scala Native 0.5.6 toolchain for native builds
+- Scala 3.3.1 (LTS)
+- JDK 11+ (JDK 17+ recommended)
+- For Scala Native builds: LLVM/Clang toolchain + Scala Native 0.5.6
 
 ## Background
 

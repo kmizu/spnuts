@@ -33,7 +33,7 @@ lazy val core = crossProject(JVMPlatform, NativePlatform)
     nativeConfig ~= { c =>
       c.withLTO(scala.scalanative.build.LTO.none)
        .withMode(scala.scalanative.build.Mode.debug)
-       .withGC(scala.scalanative.build.GC.boehm)
+       .withGC(scala.scalanative.build.GC.immix)
     },
   )
 

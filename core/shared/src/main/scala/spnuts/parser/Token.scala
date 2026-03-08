@@ -18,6 +18,7 @@ enum TokenKind:
   case If, Else, While, Do, For, Foreach, Switch, Case, Default
   case Instanceof, Break, Continue, Return, Yield
   case Function, Class, Record, Try, Catch, Throw, Finally
+  case Val, Var
   case Import, Package, Static, New, Extends, Implements
 
   // Identifiers
@@ -84,6 +85,8 @@ object Token:
     "function"    -> TokenKind.Function,
     "class"       -> TokenKind.Class,
     "record"      -> TokenKind.Record,
+    "val"         -> TokenKind.Val,
+    "var"         -> TokenKind.Var,
     "try"         -> TokenKind.Try,
     "catch"       -> TokenKind.Catch,
     "throw"       -> TokenKind.Throw,

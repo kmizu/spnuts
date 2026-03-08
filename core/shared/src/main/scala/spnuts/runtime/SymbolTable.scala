@@ -17,6 +17,12 @@ final class SymbolTable(val parent: Option[SymbolTable] = None):
     table(name) = b
     b
 
+  /** Declare a typed variable with optional immutability and static type. */
+  def declareTyped(name: String, value: Any, immutable: Boolean, staticType: Option[Class[?]] = None): Binding =
+    val b = Binding(value, immutable, staticType)
+    table(name) = b
+    b
+
   /** Look up a binding in this scope chain. */
   def lookup(name: String): Option[Binding] =
     table.get(name).orElse(parent.flatMap(_.lookup(name)))
@@ -24,7 +30,7 @@ final class SymbolTable(val parent: Option[SymbolTable] = None):
   /** Set an existing binding's value; returns true if found. */
   def set(name: String, value: Any): Boolean =
     lookup(name) match
-      case Some(b) => b.value = value; true
+      case Some(b) => b.set(value, name); true
       case None    => false
 
   /** All bindings in this scope (not parent). */

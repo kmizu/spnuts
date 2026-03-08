@@ -260,3 +260,246 @@ class ParserSpec extends AnyFlatSpec with Matchers:
       case IntLit(255L, _, _) => succeed
       case other => fail(s"Unexpected: $other")
   }
+
+  // ── Type annotation parsing ─────────────────────────────────────────────────
+
+  def parseFuncDef(src: String): FuncDef = parse(src).asInstanceOf[FuncDef]
+  def paramType(fd: FuncDef, i: Int): TypeExpr = fd.paramTypes(i).get
+  def retType(fd: FuncDef): TypeExpr = fd.returnType.get
+
+  it should "parse simple type annotations on function params" in {
+    val fd = parseFuncDef("function f(n: Long): Long { n }")
+    paramType(fd, 0) shouldBe TypeExpr(List("Long"), Nil)
+    retType(fd)      shouldBe TypeExpr(List("Long"), Nil)
+  }
+
+  it should "parse Int type alias annotation" in {
+    val fd = parseFuncDef("function f(n: Int): Int { n }")
+    paramType(fd, 0) shouldBe TypeExpr(List("Int"), Nil)
+    retType(fd)      shouldBe TypeExpr(List("Int"), Nil)
+  }
+
+  it should "parse Char type alias annotation" in {
+    val fd = parseFuncDef("function f(c: Char): Char { c }")
+    paramType(fd, 0) shouldBe TypeExpr(List("Char"), Nil)
+    retType(fd)      shouldBe TypeExpr(List("Char"), Nil)
+  }
+
+  it should "parse Unit return type annotation" in {
+    val fd = parseFuncDef("function f(s: String): Unit { println(s) }")
+    retType(fd) shouldBe TypeExpr(List("Unit"), Nil)
+  }
+
+  it should "parse Boolean type annotation" in {
+    val fd = parseFuncDef("function f(b: Boolean): Boolean { b }")
+    paramType(fd, 0) shouldBe TypeExpr(List("Boolean"), Nil)
+  }
+
+  it should "parse Long[] array type annotation" in {
+    val fd = parseFuncDef("function f(arr: Long[]): Long { arr.length }")
+    paramType(fd, 0) shouldBe TypeExpr.array(TypeExpr(List("Long"), Nil))
+  }
+
+  it should "parse Long[][] 2D array type annotation" in {
+    val fd = parseFuncDef("function f(arr: Long[][]): Long { 0 }")
+    paramType(fd, 0) shouldBe TypeExpr.array(TypeExpr.array(TypeExpr(List("Long"), Nil)))
+  }
+
+  it should "parse List<String>[] array-of-generic type annotation" in {
+    val fd = parseFuncDef("function f(arr: List<String>[]): Long { 0 }")
+    paramType(fd, 0) shouldBe TypeExpr.array(TypeExpr(List("List"), List(TypeExpr(List("String"), Nil))))
+  }
+
+  it should "parse Long* varargs annotation (distinct from Long[])" in {
+    val fd = parseFuncDef("function f(args: Long*): Long { 0 }")
+    paramType(fd, 0) shouldBe TypeExpr(List("Long"), Nil)
+    fd.varargs shouldBe true
+  }
+
+  it should "parse fixed-arity function type (A, B) -> C" in {
+    val fd = parseFuncDef("function apply(f: (Long, Long) -> Long): Long { f(1, 2) }")
+    val ft = paramType(fd, 0)
+    TypeExpr.isFuncType(ft) shouldBe true
+    TypeExpr.funcParams(ft) shouldBe List(TypeExpr(List("Long"), Nil), TypeExpr(List("Long"), Nil))
+    TypeExpr.funcReturn(ft) shouldBe TypeExpr(List("Long"), Nil)
+  }
+
+  it should "parse zero-param function type () -> Long" in {
+    val fd = parseFuncDef("function call(f: () -> Long): Long { f() }")
+    val ft = paramType(fd, 0)
+    TypeExpr.isFuncType(ft) shouldBe true
+    TypeExpr.funcParams(ft) shouldBe Nil
+    TypeExpr.funcReturn(ft)  shouldBe TypeExpr(List("Long"), Nil)
+  }
+
+  it should "parse varargs function type (Long*) -> Long" in {
+    val fd = parseFuncDef("function call(f: (Long*) -> Long): Long { f(1) }")
+    val ft = paramType(fd, 0)
+    TypeExpr.isVarargFuncType(ft) shouldBe true
+    TypeExpr.varargElemType(ft)   shouldBe TypeExpr(List("Long"), Nil)
+    TypeExpr.varargFuncReturn(ft) shouldBe TypeExpr(List("Long"), Nil)
+  }
+
+  it should "parse mixed varargs function type (String, Long*) -> Long" in {
+    val fd = parseFuncDef("function call(f: (String, Long*) -> Long): Long { f(\"x\", 1) }")
+    val ft = paramType(fd, 0)
+    TypeExpr.isVarargFuncType(ft) shouldBe true
+    TypeExpr.varargFixedParams(ft) shouldBe List(TypeExpr(List("String"), Nil))
+    TypeExpr.varargElemType(ft)    shouldBe TypeExpr(List("Long"), Nil)
+  }
+
+  it should "parse generic function with type parameter" in {
+    val fd = parseFuncDef("function id<T>(x: T): T { x }")
+    fd.typeParams shouldBe List("T")
+    paramType(fd, 0) shouldBe TypeExpr(List("T"), Nil)
+  }
+
+  it should "parse parameterized generic type List<T>" in {
+    val fd = parseFuncDef("function f<T>(xs: List<T>): T { xs.get(0) }")
+    paramType(fd, 0) shouldBe TypeExpr(List("List"), List(TypeExpr(List("T"), Nil)))
+  }
+
+  it should "parse wildcard type List<?>" in {
+    val fd = parseFuncDef("function f(xs: List<?>): Long { 0 }")
+    paramType(fd, 0) shouldBe TypeExpr(List("List"), List(TypeExpr.Wildcard))
+  }
+
+  it should "parse single-param shorthand type A -> B" in {
+    val fd = parseFuncDef("function apply(f: Long -> Long): Long { f(1) }")
+    val ft = paramType(fd, 0)
+    TypeExpr.isFuncType(ft) shouldBe true
+    TypeExpr.funcParams(ft) shouldBe List(TypeExpr(List("Long"), Nil))
+  }
+
+  it should "parse qualified type java.util.List as annotation" in {
+    val fd = parseFuncDef("function f(xs: java.util.List<?>): Long { 0 }")
+    paramType(fd, 0) shouldBe TypeExpr(List("java","util","List"), List(TypeExpr.Wildcard))
+  }
+
+  it should "parse val declaration with type annotation" in {
+    parse("val x: Long = 42") should matchPattern {
+      case VarDecl(DeclKind.Val, "x", Some(TypeExpr(List("Long"), Nil)), _, _) =>
+    }
+  }
+
+  it should "parse var declaration with type annotation" in {
+    parse("var s: String = \"hi\"") should matchPattern {
+      case VarDecl(DeclKind.Var, "s", Some(TypeExpr(List("String"), Nil)), _, _) =>
+    }
+  }
+
+  it should "parse val declaration with array type annotation" in {
+    parse("val arr: Long[] = null") should matchPattern {
+      case VarDecl(DeclKind.Val, "arr", Some(te), _, _) if TypeExpr.isArrayType(te) =>
+    }
+  }
+
+  // ── Nested / complex generic types ────────────────────────────────────────────
+
+  it should "parse Map<String, Long> multi-arg generic" in {
+    val fd = parseFuncDef("function f(m: Map<String, Long>): Long { 0 }")
+    paramType(fd, 0) shouldBe TypeExpr(List("Map"),
+      List(TypeExpr(List("String"), Nil), TypeExpr(List("Long"), Nil)))
+  }
+
+  it should "parse nested generic List<List<Long>>" in {
+    val fd = parseFuncDef("function f(xs: List<List<Long>>): Long { 0 }")
+    paramType(fd, 0) shouldBe TypeExpr(List("List"),
+      List(TypeExpr(List("List"), List(TypeExpr(List("Long"), Nil)))))
+  }
+
+  it should "parse function type with generic return () -> List<Long>" in {
+    val fd = parseFuncDef("function f(g: () -> List<Long>): Long { 0 }")
+    val ft = paramType(fd, 0)
+    TypeExpr.isFuncType(ft) shouldBe true
+    TypeExpr.funcReturn(ft) shouldBe TypeExpr(List("List"), List(TypeExpr(List("Long"), Nil)))
+  }
+
+  it should "parse function type with generic param (List<Long>) -> Long" in {
+    val fd = parseFuncDef("function f(g: (List<Long>) -> Long): Long { 0 }")
+    val ft = paramType(fd, 0)
+    TypeExpr.isFuncType(ft) shouldBe true
+    TypeExpr.funcParams(ft) shouldBe List(TypeExpr(List("List"), List(TypeExpr(List("Long"), Nil))))
+  }
+
+  it should "parse higher-order function type ((Long) -> Long) -> Long" in {
+    val fd = parseFuncDef("function twice(f: (Long -> Long) -> Long): Long { 0 }")
+    val ft = paramType(fd, 0)
+    TypeExpr.isFuncType(ft) shouldBe true
+    TypeExpr.isFuncType(TypeExpr.funcParams(ft).head) shouldBe true
+  }
+
+  it should "parse function type with array param (Long[]) -> Long" in {
+    val fd = parseFuncDef("function f(g: (Long[]) -> Long): Long { 0 }")
+    val ft = paramType(fd, 0)
+    TypeExpr.isFuncType(ft) shouldBe true
+    TypeExpr.isArrayType(TypeExpr.funcParams(ft).head) shouldBe true
+  }
+
+  it should "parse Double and Float type alias annotations" in {
+    val fd = parseFuncDef("function f(x: Double, y: Float): Double { x }")
+    paramType(fd, 0) shouldBe TypeExpr(List("Double"), Nil)
+    paramType(fd, 1) shouldBe TypeExpr(List("Float"), Nil)
+    retType(fd)      shouldBe TypeExpr(List("Double"), Nil)
+  }
+
+  it should "parse Short and Byte type alias annotations" in {
+    val fd = parseFuncDef("function f(x: Short, y: Byte): Short { x }")
+    paramType(fd, 0) shouldBe TypeExpr(List("Short"), Nil)
+    paramType(fd, 1) shouldBe TypeExpr(List("Byte"), Nil)
+  }
+
+  it should "parse Int[] array of alias type annotation" in {
+    val fd = parseFuncDef("function f(arr: Int[]): Long { 0 }")
+    val at = paramType(fd, 0)
+    TypeExpr.isArrayType(at) shouldBe true
+    TypeExpr.arrayElemType(at) shouldBe TypeExpr(List("Int"), Nil)
+  }
+
+  it should "parse Char[] array annotation" in {
+    val fd = parseFuncDef("function f(cs: Char[]): Long { 0 }")
+    val at = paramType(fd, 0)
+    TypeExpr.isArrayType(at) shouldBe true
+    TypeExpr.arrayElemType(at) shouldBe TypeExpr(List("Char"), Nil)
+  }
+
+  it should "parse val with function type annotation" in {
+    parse("val f: (Long) -> Long = null") should matchPattern {
+      case VarDecl(DeclKind.Val, "f", Some(te), _, _) if TypeExpr.isFuncType(te) =>
+    }
+  }
+
+  it should "parse two type parameters <T, U>" in {
+    val fd = parseFuncDef("function pair<T, U>(a: T, b: U): T { a }")
+    fd.typeParams shouldBe List("T", "U")
+    paramType(fd, 0) shouldBe TypeExpr(List("T"), Nil)
+    paramType(fd, 1) shouldBe TypeExpr(List("U"), Nil)
+  }
+
+  it should "parse three type parameters <A, B, C>" in {
+    val fd = parseFuncDef("function triple<A, B, C>(a: A, b: B, c: C): A { a }")
+    fd.typeParams shouldBe List("A", "B", "C")
+  }
+
+  it should "parse qualified type java.util.Map<String, Long>" in {
+    val fd = parseFuncDef("function f(m: java.util.Map<String, Long>): Long { 0 }")
+    paramType(fd, 0) shouldBe TypeExpr(List("java","util","Map"),
+      List(TypeExpr(List("String"), Nil), TypeExpr(List("Long"), Nil)))
+  }
+
+  it should "display array type correctly" in {
+    TypeExpr.array(TypeExpr(List("Long"), Nil)).toDisplayString shouldBe "Long[]"
+    TypeExpr.array(TypeExpr.array(TypeExpr(List("String"), Nil))).toDisplayString shouldBe "String[][]"
+  }
+
+  it should "display vararg function type correctly" in {
+    TypeExpr.funcVararg(Nil, TypeExpr(List("Long"), Nil), TypeExpr(List("Long"), Nil))
+      .toDisplayString shouldBe "(Long*) -> Long"
+    TypeExpr.funcVararg(List(TypeExpr(List("String"), Nil)), TypeExpr(List("Long"), Nil), TypeExpr(List("Long"), Nil))
+      .toDisplayString shouldBe "(String, Long*) -> Long"
+  }
+
+  it should "display generic type correctly" in {
+    TypeExpr(List("Map"), List(TypeExpr(List("String"), Nil), TypeExpr(List("Long"), Nil)))
+      .toDisplayString shouldBe "Map<String, Long>"
+  }

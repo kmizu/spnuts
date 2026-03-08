@@ -103,6 +103,25 @@ object Interpreter:
       val cls = resolveClass(typeName, ctx, pos)
       cls.isInstance(obj)
 
+    // ── Variable declaration (val/var) ────────────────────────────────────────
+
+    case VarDecl(kind, name, typeName, value, pos) =>
+      val v = eval(value, ctx)
+      // Determine the static type: explicit annotation takes priority, else infer from value
+      val staticType: Option[Class[?]] = typeName match
+        case Some(te) =>
+          val cls = resolveTypeExpr(te, Map.empty, ctx, pos)
+          if v != null && !cls.isInstance(v) then
+            throw RuntimeError(
+              s"Type error: '$name' declared as ${te.toDisplayString} but got ${v.getClass.getSimpleName}", pos)
+          Some(cls)
+        case None =>
+          // Infer type from the actual value (local type inference)
+          if v != null then Some(v.getClass) else None
+      val immutable = kind == DeclKind.Val
+      ctx.declareVar(name, v, immutable, staticType)
+      v
+
     // ── Assignment ────────────────────────────────────────────────────────────
 
     case Assignment(op, lhs, rhs, pos) =>
@@ -225,11 +244,14 @@ object Interpreter:
 
     // ── Functions ─────────────────────────────────────────────────────────────
 
-    case FuncDef(name, params, varargs, body, _) =>
+    case FuncDef(name, params, varargs, body, _, typeParams, paramTypes, returnType) =>
       val f = PnutsFunc(
         name, params.toArray, varargs, body,
         ctx.currentPackage,
         ctx.stackFrame.map(_.makeLexicalScope()).getOrElse(Map.empty),
+        typeParams.toArray,
+        paramTypes.toArray,
+        returnType,
       )
       val group = name match
         case Some(n) =>
@@ -374,7 +396,7 @@ object Interpreter:
       if dims.nonEmpty then
         // Array creation: new Type[n]
         val size = Operators.toLong(eval(dims.head, ctx)).toInt
-        java.lang.reflect.Array.newInstance(cls, size)
+        JavaInteropShim.newArray(cls, size)
       else
         val argVals = args.map(eval(_, ctx)).toArray
         callConstructor(cls, argVals, pos)
@@ -388,7 +410,7 @@ object Interpreter:
 
     case BeanDef(typeName, props, pos) =>
       val cls = resolveClass(typeName, ctx, pos)
-      val obj = cls.getDeclaredConstructor().newInstance()
+      val obj = JavaInteropShim.newInstance(cls)
       for p <- props do
         setProperty(obj, p.name, eval(p.value, ctx), pos)
       obj
@@ -452,14 +474,54 @@ object Interpreter:
       case native: NativeFunc => native.impl(args, ctx)
 
   private def callFunction(func: PnutsFunc, args: Array[Any], ctx: Context, pos: spnuts.ast.SourcePos): Any =
+    // Infer type parameter bindings from actual arguments
+    val typeBindings = collection.mutable.Map.empty[String, Class[?]]
+    if func.typeParams.nonEmpty && func.paramTypes.nonEmpty then
+      val typeParamSet = func.typeParams.toSet
+      for i <- 0 until math.min(func.paramTypes.length, args.length) do
+        func.paramTypes(i).foreach { te =>
+          inferTypeBindings(te, args(i), typeParamSet, typeBindings)
+        }
+    // Type-check parameters before execution; inject inferred types into untyped lambdas
+    val checkedArgs = if func.paramTypes.nonEmpty then
+      val a = args.clone()
+      for i <- 0 until math.min(func.paramTypes.length, a.length) do
+        func.paramTypes(i).foreach { te =>
+          val arg = a(i)
+          if TypeExpr.isFuncType(te) then
+            checkFuncType(te, arg, func.params(i), pos)
+            // Inject inferred param/return types into untyped lambda
+            a(i) = injectFuncType(te, arg)
+          else
+            val cls = resolveTypeExpr(te, typeBindings.toMap, ctx, pos)
+            if !TypeCompat.isCompatible(cls, arg) then
+              throw RuntimeError(
+                s"Type error: parameter '${func.params(i)}' expects ${te.toDisplayString} but got ${if arg == null then "null" else TypeCompat.typeName(arg.getClass)}", pos)
+            // Coerce numeric arg to declared type for transparent widening (e.g. Long→Double)
+            a(i) = coerceNumericArg(cls, arg)
+        }
+      a
+    else args
     val savedFrame    = ctx.stackFrame
     val savedPackage  = ctx.currentPackage
     val savedYieldBuf = ctx.yieldBuf
     ctx.yieldBuf = null  // fresh yield buffer for this call
-    ctx.openFrame(func, args)
+    ctx.openFrame(func, checkedArgs)
     ctx.currentPackage = func.pkg
     try
-      val result = try eval(func.body, ctx) catch { case e: ReturnException => e.value }
+      var result: Any = try eval(func.body, ctx) catch { case e: ReturnException => e.value }
+      // Type-check / coerce return value
+      func.returnType.foreach { te =>
+        if TypeExpr.isFuncType(te) || TypeExpr.isVarargFuncType(te) then
+          checkFuncType(te, result, func.name.getOrElse("<function>"), pos)
+        else if te == TypeExpr(List("Unit"), Nil) then
+          result = scala.runtime.BoxedUnit.UNIT  // void: discard value, return Unit singleton
+        else
+          val cls = resolveTypeExpr(te, typeBindings.toMap, ctx, pos)
+          if !TypeCompat.isCompatible(cls, result) then
+            throw RuntimeError(
+              s"Type error: ${func.name.getOrElse("<function>")} declared return type ${te.toDisplayString} but returned ${if result == null then "null" else TypeCompat.typeName(result.getClass)}", pos)
+      }
       // If any yield was called, return accumulated values as array
       val buf = ctx.yieldBuf
       if buf != null && !buf.isEmpty then buf.toArray()
@@ -620,6 +682,160 @@ object Interpreter:
     val name = parts.mkString(".")
     JavaInteropShim.resolveClass(name, ctx.imports.toList)
       .getOrElse(throw RuntimeError(s"Cannot resolve class: $name", pos))
+
+  /**
+   * Resolve a `TypeExpr` to a JVM `Class`, substituting any type variables from `typeBindings`.
+   * Generic type arguments are erased (JVM erasure semantics): `List<T>` → `List`.
+   */
+  /** Lowercase primitive names that are forbidden in type annotations. */
+  private val forbiddenPrimitives = Set(
+    "byte", "char", "short", "int", "float", "double", "long", "boolean", "void"
+  )
+
+  /**
+   * Built-in type alias mappings: short capitalized names → JVM wrapper classes.
+   * Kotlin/Scala-style: `Int` = java.lang.Integer, `Char` = java.lang.Character, etc.
+   */
+  private val typeAliases: Map[String, Class[?]] = Map(
+    "Int"     -> classOf[java.lang.Integer],
+    "Long"    -> classOf[java.lang.Long],
+    "Short"   -> classOf[java.lang.Short],
+    "Byte"    -> classOf[java.lang.Byte],
+    "Float"   -> classOf[java.lang.Float],
+    "Double"  -> classOf[java.lang.Double],
+    "Char"    -> classOf[java.lang.Character],
+    "Boolean" -> classOf[java.lang.Boolean],
+    "Unit"    -> classOf[scala.runtime.BoxedUnit],
+  )
+
+  /** Coerce a value to the declared numeric type (e.g. Long→Double for transparent widening). */
+  private def coerceNumericArg(cls: Class[?], value: Any): Any =
+    if value == null then null
+    else if (cls == classOf[java.lang.Double] || cls == classOf[Double]) && !value.isInstanceOf[Double] then
+      Operators.toDouble(value)
+    else if (cls == classOf[java.lang.Float] || cls == classOf[Float]) && !value.isInstanceOf[Float] then
+      Operators.toDouble(value).toFloat
+    else value
+
+  private def resolveTypeExpr(
+    te: TypeExpr,
+    typeBindings: Map[String, Class[?]],
+    ctx: Context,
+    pos: spnuts.ast.SourcePos
+  ): Class[?] =
+    te match
+      // Array type `Long[]` — resolve element type then make array class
+      case _ if TypeExpr.isArrayType(te) =>
+        val elemCls = resolveTypeExpr(TypeExpr.arrayElemType(te), typeBindings, ctx, pos)
+        JavaInteropShim.arrayClass(elemCls)
+      // Function type `(A, B) -> C` or varargs `(A*) -> C` — detailed check in checkFuncType
+      case _ if TypeExpr.isFuncType(te) || TypeExpr.isVarargFuncType(te) =>
+        classOf[Object]
+      // Wildcard `?` — treated as Object (accepts anything)
+      case TypeExpr(List("?"), Nil) =>
+        classOf[Object]
+      // Reject lowercase primitive names
+      case TypeExpr(List(p), Nil) if forbiddenPrimitives.contains(p) =>
+        throw RuntimeError(
+          s"Primitive type '$p' is not allowed; use '${p.head.toUpper}${p.tail}' instead", pos)
+      // Built-in type aliases (Int, Long, Char, Boolean, Unit …)
+      case TypeExpr(List(alias), _) if typeAliases.contains(alias) =>
+        typeAliases(alias)
+      // Bare single-segment name that is a bound type variable
+      case TypeExpr(List(tv), Nil) if typeBindings.contains(tv) =>
+        typeBindings(tv)
+      // Primitive / class name — erase type args
+      case TypeExpr(parts, _) =>
+        resolveClass(parts, ctx, pos)
+
+  /**
+   * Check that `value` is callable with a compatible arity.
+   * Handles both fixed-arity `(A, B) -> C` and varargs `(A, B*) -> C` function types.
+   */
+  private def checkFuncType(te: TypeExpr, value: Any, paramName: String, pos: spnuts.ast.SourcePos): Unit =
+    val isVararg = TypeExpr.isVarargFuncType(te)
+    val minArity = if isVararg then TypeExpr.varargMinArity(te)
+                   else TypeExpr.funcParams(te).length
+    value match
+      case null =>
+        throw RuntimeError(s"Type error: '$paramName' expects a function but got null", pos)
+      case g: PnutsGroup =>
+        // For varargs: accept if there's a varargs overload or a fixed overload with arity >= minArity
+        val ok = if isVararg then
+          g.resolve(-1).isDefined ||  // varargs overload
+          (minArity until minArity + 64).exists(a => g.resolve(a).isDefined)
+        else
+          g.resolve(minArity).isDefined
+        if !ok then
+          val arityDesc = if isVararg then s"at least $minArity" else s"exactly $minArity"
+          throw RuntimeError(
+            s"Type error: '$paramName' expects a function with $arityDesc parameter(s) but no matching overload found", pos)
+      case f: PnutsFunc =>
+        if isVararg then
+          () // varargs PnutsFunc accepts any count — always OK
+        else if !f.varargs && f.params.length != minArity then
+          throw RuntimeError(
+            s"Type error: '$paramName' expects a function with $minArity parameter(s) but got ${f.params.length}", pos)
+      case _: NativeFunc => () // native functions: assume compatible
+      case _ =>
+        throw RuntimeError(
+          s"Type error: '$paramName' expects ${te.toDisplayString} but got ${value.getClass.getSimpleName}", pos)
+
+  /**
+   * If `value` is an untyped PnutsFunc/PnutsGroup and `te` is a function type annotation,
+   * return a copy with inferred param/return types injected.
+   * Enables lambda parameter type inference from context.
+   */
+  private def injectFuncType(te: TypeExpr, value: Any): Any =
+    val isVararg = TypeExpr.isVarargFuncType(te)
+    val (fixedParamTEs, retTE) =
+      if isVararg then (TypeExpr.varargFixedParams(te), TypeExpr.varargFuncReturn(te))
+      else (TypeExpr.funcParams(te), TypeExpr.funcReturn(te))
+    value match
+      case f: PnutsFunc if f.paramTypes.isEmpty =>
+        val matches = if isVararg then f.varargs && f.params.length >= fixedParamTEs.length
+                      else !f.varargs && f.params.length == fixedParamTEs.length
+        if matches then
+          // For varargs: only inject fixed param types; the vararg param gets no type annotation
+          val injectedTypes = fixedParamTEs.map(t => Some(t)) ++
+            f.params.drop(fixedParamTEs.length).map(_ => None)
+          new PnutsFunc(
+            f.name, f.params, f.varargs, f.body, f.pkg, f.lexicalScope,
+            f.typeParams,
+            injectedTypes.toArray,
+            Some(retTE),
+          )
+        else f
+      case g: PnutsGroup =>
+        val targetArity = if isVararg then -1 else fixedParamTEs.length
+        g.resolve(targetArity) match
+          case Some(f: PnutsFunc) if f.paramTypes.isEmpty =>
+            val typed = injectFuncType(te, f).asInstanceOf[PnutsFunc]
+            val g2 = PnutsGroup(g.name)
+            g2.register(typed)
+            g2.parent = g.parent
+            g2
+          case _ => g
+      case other => other
+
+  /**
+   * Infer type variable bindings by matching a parameter type against an actual argument value.
+   * For a bare type variable `T`, binds `T` to the runtime class of `arg`.
+   * For parameterized types like `List<T>`, erases type args (no element-level reflection).
+   */
+  private def inferTypeBindings(
+    te: TypeExpr,
+    arg: Any,
+    typeParams: Set[String],
+    bindings: collection.mutable.Map[String, Class[?]]
+  ): Unit =
+    te match
+      case TypeExpr(List(tv), Nil) if typeParams(tv) && arg != null =>
+        // Bare type variable: bind to actual argument's class
+        if !bindings.contains(tv) then bindings(tv) = arg.getClass
+      case TypeExpr(_, typeArgs) =>
+        // For parameterized types, we don't recurse into element types (erasure)
+        ()
 
   private def callConstructor(cls: Class[?], args: Array[Any], pos: spnuts.ast.SourcePos): Any =
     JavaInteropShim.callConstructor(cls, args, pos)

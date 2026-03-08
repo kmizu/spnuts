@@ -249,3 +249,288 @@ class JavaInteropSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll:
       list.get(0)
     """) shouldBe 1
   }
+
+  // ── Numeric coercion (boxing/unboxing transparency) ─────────────────────────
+
+  it should "coerce Long to int when calling Java method expecting int" in {
+    // String.charAt(int) — SPnuts passes Long, JavaInterop must coerce to int
+    run("""
+      s = "hello"
+      s.charAt(1)
+    """) shouldBe 'e'
+  }
+
+  it should "coerce Long to Integer when calling java.lang.Integer method" in {
+    run("""
+      java.lang.Integer.toBinaryString(10)
+    """) shouldBe "1010"
+  }
+
+  it should "coerce Long to short for Short.valueOf" in {
+    run("""
+      java.lang.Short.valueOf(42)
+    """) shouldBe (42: Short)
+  }
+
+  it should "coerce Long to byte for Byte.valueOf" in {
+    run("""
+      java.lang.Byte.valueOf(127)
+    """) shouldBe (127: Byte)
+  }
+
+  it should "pass Char to Java method expecting char" in {
+    // Character.isLetter(char)
+    run("""
+      java.lang.Character.isLetter('A')
+    """) shouldBe true
+  }
+
+  it should "pass Char to Java method expecting int (widening)" in {
+    // Character.getNumericValue(int) — char widens to int
+    run("""
+      java.lang.Character.getNumericValue('9')
+    """) shouldBe 9
+  }
+
+  it should "coerce Long to double for Math.sqrt" in {
+    run("""
+      java.lang.Math.sqrt(9)
+    """) shouldBe 3.0
+  }
+
+  it should "coerce Long to float for Float.valueOf" in {
+    run("""
+      java.lang.Float.valueOf(2)
+    """) shouldBe (2.0f)
+  }
+
+  it should "resolve Int as class alias for java.lang.Integer" in {
+    // Using short name 'Integer' (via java.lang.* auto-import) in class creation
+    run("""
+      java.lang.Integer.MAX_VALUE
+    """) shouldBe java.lang.Integer.MAX_VALUE
+  }
+
+  // ── Array interop ────────────────────────────────────────────────────────────
+
+  it should "create and use a Long array via reflection" in {
+    run("""
+      import java.lang.reflect.*
+      arr = Array.newInstance(java.lang.Long, 3)
+      arr[0] = 10
+      arr[1] = 20
+      arr[2] = 30
+      arr[0]
+    """) shouldBe 10L
+  }
+
+  it should "pass array to Java method (Arrays.fill)" in {
+    run("""
+      import java.util.Arrays
+      import java.lang.reflect.Array
+      arr = Array.newInstance(java.lang.Long, 3)
+      Arrays.fill(arr, 7)
+      arr[0]
+    """) shouldBe 7L
+  }
+
+  // ── Boolean params / returns ─────────────────────────────────────────────────
+
+  it should "call Java method with boolean param (String.startsWith)" in {
+    run("""
+      "hello".startsWith("hel")
+    """) shouldBe true
+  }
+
+  it should "call Java method returning boolean (String.isEmpty)" in {
+    run("""
+      "".isEmpty()
+    """) shouldBe true
+  }
+
+  it should "call Java method returning boolean (ArrayList.isEmpty)" in {
+    run("""
+      list = new java.util.ArrayList()
+      list.isEmpty()
+    """) shouldBe true
+  }
+
+  it should "negate boolean return from Java method" in {
+    run("""
+      !"".isEmpty()
+    """) shouldBe false
+  }
+
+  // ── Char return from Java methods ────────────────────────────────────────────
+
+  it should "retrieve char from String.charAt and use in equality" in {
+    run("""
+      c = "hello".charAt(0)
+      c == 'h'
+    """) shouldBe true
+  }
+
+  it should "call Character.isUpperCase on Java char result" in {
+    run("""
+      c = "Hello".charAt(0)
+      java.lang.Character.isUpperCase(c)
+    """) shouldBe true
+  }
+
+  it should "call Character.toLowerCase on a char" in {
+    run("""
+      java.lang.Character.toLowerCase('A')
+    """) shouldBe 'a'
+  }
+
+  // ── String method coercions ──────────────────────────────────────────────────
+
+  it should "call String.indexOf(int) with Long arg (coercion)" in {
+    run("""
+      "abcde".indexOf('c')
+    """) shouldBe 2
+  }
+
+  it should "call String.substring(int, int) with Long args" in {
+    run("""
+      "hello world".substring(6, 11)
+    """) shouldBe "world"
+  }
+
+  it should "call String.repeat(int) with Long arg" in {
+    run("""
+      "ab".repeat(3)
+    """) shouldBe "ababab"
+  }
+
+  // ── Overload resolution ──────────────────────────────────────────────────────
+
+  it should "resolve best overload: Math.max(long, long)" in {
+    run("""
+      java.lang.Math.max(10, 20)
+    """) shouldBe 20L
+  }
+
+  it should "resolve best overload: Math.max(double, double)" in {
+    run("""
+      java.lang.Math.max(1.5, 2.5)
+    """) shouldBe 2.5
+  }
+
+  it should "resolve Math.min with Long args" in {
+    run("""
+      java.lang.Math.min(100, 42)
+    """) shouldBe 42L
+  }
+
+  it should "resolve Math.pow(double, double) with Long args (widening)" in {
+    run("""
+      java.lang.Math.pow(2, 10)
+    """) shouldBe 1024.0
+  }
+
+  // ── Constructor coercion ─────────────────────────────────────────────────────
+
+  it should "construct Integer from Long arg" in {
+    run("""
+      new java.lang.Integer(42)
+    """) shouldBe 42
+  }
+
+  it should "construct Long from Long arg" in {
+    run("""
+      new java.lang.Long(99)
+    """) shouldBe 99L
+  }
+
+  it should "construct StringBuilder with Long (no-arg fallback)" in {
+    // StringBuilder(int capacity) — Long coerces to int
+    run("""
+      sb = new java.lang.StringBuilder(16)
+      sb.capacity()
+    """) shouldBe 16
+  }
+
+  // ── null argument handling ────────────────────────────────────────────────────
+
+  it should "pass null to String method (String.valueOf null)" in {
+    run("""
+      java.lang.String.valueOf(null)
+    """) shouldBe "null"
+  }
+
+  // ── Primitive returns from Java methods ─────────────────────────────────────
+
+  it should "auto-box int return from String.length() to Long" in {
+    val result = run("""
+      "hello".length()
+    """)
+    result shouldBe 5
+  }
+
+  it should "auto-box boolean return (usable in if)" in {
+    run("""
+      if ("abc".contains("b")) 1 else 0
+    """) shouldBe 1L
+  }
+
+  it should "auto-box double return from Math.sqrt" in {
+    run("""
+      java.lang.Math.sqrt(16)
+    """) shouldBe 4.0
+  }
+
+  it should "use int return from Java method in arithmetic" in {
+    run("""
+      "hello".length() + 1
+    """) shouldBe 6
+  }
+
+  // ── Static vs instance methods ───────────────────────────────────────────────
+
+  it should "call static method Integer.parseInt" in {
+    run("""
+      java.lang.Integer.parseInt("123")
+    """) shouldBe 123
+  }
+
+  it should "call instance method on String result of static call" in {
+    run("""
+      java.lang.String.valueOf(42).length()
+    """) shouldBe 2
+  }
+
+  it should "call static Math.abs on Long arg" in {
+    run("""
+      java.lang.Math.abs(-99)
+    """) shouldBe 99L
+  }
+
+  // ── Collection methods with generics ────────────────────────────────────────
+
+  it should "call ArrayList.add and get with type coercion" in {
+    run("""
+      list = new java.util.ArrayList()
+      list.add("hello")
+      list.add("world")
+      list.get(1)
+    """) shouldBe "world"
+  }
+
+  it should "call HashMap.put and get" in {
+    run("""
+      map = new java.util.HashMap()
+      map.put("key", "value")
+      map.get("key")
+    """) shouldBe "value"
+  }
+
+  it should "call Collections.unmodifiableList" in {
+    run("""
+      list = new java.util.ArrayList()
+      list.add(1)
+      list.add(2)
+      ul = java.util.Collections.unmodifiableList(list)
+      ul.size()
+    """) shouldBe 2
+  }
