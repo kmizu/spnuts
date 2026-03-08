@@ -184,7 +184,12 @@ final class Lexer(source: String, file: String = "<input>"):
       case '.' => advance()
                   if peek() == '.' then { advance(); Token(DotDot, "..", startPos) }
                   else Token(Dot, ".", startPos)
-      case '(' => advance(); Token(LParen, "(", startPos)
+      case '(' => advance()
+                  // Track paren depth inside \(expr) so that method calls like
+                  // \(obj.method()) don't prematurely close the interpolation.
+                  if interpDepth.nonEmpty then
+                    interpDepth(interpDepth.length - 1) += 1
+                  Token(LParen, "(", startPos)
       case ')' => advance()
                   // If we're inside \(expr), this ends the interpolation
                   if interpDepth.nonEmpty then

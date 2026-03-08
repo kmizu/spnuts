@@ -180,6 +180,18 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
     run("""a = 1; b = 2; "\(a) + \(b) = \(a + b)"""") shouldBe "1 + 2 = 3"
   }
 
+  it should "interpolate method call result" in {
+    run(""""upper: \("hello".toUpperCase())"""") shouldBe "upper: HELLO"
+  }
+
+  it should "interpolate nested parens in method call" in {
+    run("""s = "hello"; "len=\(s.length())"""") shouldBe "len=5"
+  }
+
+  it should "interpolate arithmetic with parens" in {
+    run(""""result: \((2 + 3) * 4)"""") shouldBe "result: 20"
+  }
+
   it should "evaluate map literal" in {
     val r = run("""{ "a" => 1, "b" => 2 }""")
     r.isInstanceOf[java.util.Map[?, ?]] shouldBe true
