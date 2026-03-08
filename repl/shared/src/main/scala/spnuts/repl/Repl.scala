@@ -15,7 +15,7 @@ class Repl:
 
   private def banner: String =
     """SPnuts 2.0.0-SNAPSHOT (Scala reimplementation)
-      |Powered by コウタ's PEG expertise + 戸松さんの魂
+      |Thanks to Tomatsu-san for the original Pnuts.
       |Type :quit to exit, :help for commands.""".stripMargin
 
   def eval(line: String): String =
