@@ -587,6 +587,19 @@ class CodeGen(mv: MethodVisitor, scope: ScopeAnalyzer.ScopeInfo, slotBase: Int =
       mv.visitMethodInsn(INVOKESTATIC, HELPER_CLS, "resolveClass",
         "(L" + CTX_CLS + ";Ljava/lang/String;Ljava/lang/String;II)Ljava/lang/Object;", false)
 
+    // ── Variable declarations (val / var) ─────────────────────────────────────
+
+    case VarDecl(kind, name, _, value, _) =>
+      compileExpr(value)
+      val slot = nextSlot.getAndIncrement()
+      mv.visitVarInsn(ASTORE, slot)
+      mv.visitVarInsn(ALOAD, 0)  // ctx
+      mv.visitLdcInsn(name)
+      mv.visitVarInsn(ALOAD, slot)
+      mv.visitInsn(if kind == DeclKind.Val then ICONST_1 else ICONST_0)
+      mv.visitMethodInsn(INVOKESTATIC, HELPER_CLS, "declareVar",
+        "(L" + CTX_CLS + ";Ljava/lang/String;Ljava/lang/Object;Z)Ljava/lang/Object;", false)
+
     case e =>
       // Fallback: throw UnsupportedOperationException at compile time
       throw new UnsupportedOperationException(s"CodeGen: unsupported AST node ${e.getClass.getSimpleName}")

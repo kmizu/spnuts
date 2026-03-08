@@ -160,9 +160,15 @@ object CompiledHelper:
     // For the compiler, we generate simplified switch handling via this helper.
     null  // stub
 
+  // ── Variable declaration ───────────────────────────────────────────────────
+
+  def declareVar(ctx: Context, name: String, value: Any, immutable: Boolean): Any =
+    val staticType: Option[Class[?]] = if value != null then Some(value.getClass) else None
+    ctx.declareVar(name, value, immutable, staticType)
+    value
+
   // ── Function stub ─────────────────────────────────────────────────────────
 
   def defineFuncStub(ctx: Context): Any =
-    // This is only called when FuncDef compilation falls back to stub.
-    // The actual function is registered by the Compiler before calling exec().
+    // FuncDef nodes are pre-registered by Compiler.compileScript before exec is called.
     null

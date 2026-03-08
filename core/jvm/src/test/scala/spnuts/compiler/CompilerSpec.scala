@@ -154,3 +154,62 @@ class CompilerSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll:
   it should "compile fibonacci" in {
     bothEqual("a = 0; b = 1; i = 0; while (i < 10) { tmp = a + b; a = b; b = tmp; i++ }; a")
   }
+
+  // ── Function definitions ─────────────────────────────────────────────────────
+
+  it should "compile top-level function definition and call" in {
+    bothEqual("""
+      function add(x, y) { x + y }
+      add(3, 4)
+    """)
+  }
+
+  it should "compile recursive function" in {
+    bothEqual("""
+      function fib(n) if (n <= 1) n else fib(n - 1) + fib(n - 2)
+      fib(10)
+    """)
+  }
+
+  it should "compile function using closure over variable" in {
+    bothEqual("""
+      n = 10
+      function addN(x) { x + n }
+      addN(5)
+    """)
+  }
+
+  it should "compile multiple function definitions" in {
+    bothEqual("""
+      function double(x) { x * 2 }
+      function triple(x) { x * 3 }
+      double(3) + triple(2)
+    """)
+  }
+
+  // ── val / var declarations ────────────────────────────────────────────────────
+
+  it should "compile val declaration" in {
+    bothEqual("""
+      function test() {
+        val x = 42
+        x
+      }
+      test()
+    """)
+  }
+
+  it should "compile var declaration and mutation" in {
+    bothEqual("""
+      function test() {
+        var s = "hello"
+        s = "world"
+        s
+      }
+      test()
+    """)
+  }
+
+  it should "compile val at top level" in {
+    bothEqual("val answer = 21 * 2; answer")
+  }

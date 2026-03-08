@@ -46,7 +46,14 @@ object Compiler:
       val bytes = buildClass(className, Nil, exprs)
       val cls = loader.define(className.replace('/', '.'), bytes)
       val execMethod = cls.getMethod("exec", classOf[Context])
-      Some(ctx => execMethod.invoke(null, ctx))
+      // Pre-register top-level function definitions via the interpreter.
+      // The compiled stub for FuncDef just returns null, so we evaluate FuncDef
+      // nodes ahead of time so functions are available when the compiled body runs.
+      val topFuncs = exprs.exprs.collect { case fd: FuncDef => fd }
+      Some { ctx =>
+        for fd <- topFuncs do Interpreter.eval(fd, ctx)
+        execMethod.invoke(null, ctx)
+      }
     catch
       case _: UnsupportedOperationException => None
       case e: Exception =>
