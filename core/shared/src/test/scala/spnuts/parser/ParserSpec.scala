@@ -147,7 +147,7 @@ class ParserSpec extends AnyFlatSpec with Matchers:
   }
 
   it should "parse try-catch-finally" in {
-    parse("""try { f() } catch (java.lang.Exception e) { 0 } finally { cleanup() }""") shouldBe an[TryExpr]
+    parse("""try { f() } catch (e: java.lang.Exception) { 0 } finally { cleanup() }""") shouldBe an[TryExpr]
   }
 
   it should "parse throw" in {

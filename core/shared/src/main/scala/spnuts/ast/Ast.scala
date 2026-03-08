@@ -247,7 +247,9 @@ case class ContinueExpr(pos: SourcePos) extends Expr
 // ── Exception handling ────────────────────────────────────────────────────────
 
 case class TryExpr(body: Expr, catches: List[CatchClause], finallyBlock: Option[Expr], pos: SourcePos) extends Expr
-case class CatchClause(typeName: List[String], varName: String, body: Expr, pos: SourcePos)
+/** catch(varName [: TypeExpr]) { body }
+ *  exType = None means catch-all (catches any Throwable) */
+case class CatchClause(varName: String, exType: Option[TypeExpr], body: Expr, pos: SourcePos)
 case class ThrowExpr(expr: Option[Expr], pos: SourcePos) extends Expr
 
 /** Standalone catch(cls, handler) — functional style */

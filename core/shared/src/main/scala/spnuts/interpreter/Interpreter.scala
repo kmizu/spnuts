@@ -342,8 +342,11 @@ object Interpreter:
                              !e.isInstanceOf[BreakException]  &&
                              !e.isInstanceOf[ContinueException.type] =>
           val matched = catches.find { c =>
-            val cls = resolveClass(c.typeName, ctx, c.pos)
-            cls.isInstance(e)
+            c.exType match
+              case None     => true  // catch-all: catch(e) {}
+              case Some(te) =>
+                val cls = resolveTypeExpr(te, Map.empty, ctx, c.pos)
+                cls.isInstance(e)
           }
           matched match
             case Some(c) =>

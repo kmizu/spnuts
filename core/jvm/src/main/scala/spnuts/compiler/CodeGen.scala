@@ -532,8 +532,8 @@ class CodeGen(mv: MethodVisitor, scope: ScopeAnalyzer.ScopeInfo, slotBase: Int =
         mv.visitVarInsn(ALOAD, resultSlot)
         mv.visitJumpInsn(GOTO, afterFinally)
         // register exception handler
-        mv.visitTryCatchBlock(startLabel, handlerLabel, handlerLabel,
-          c.typeName.mkString("/"))
+        val exInternalName = c.exType.map(te => te.name.mkString("/")).orNull
+        mv.visitTryCatchBlock(startLabel, handlerLabel, handlerLabel, exInternalName)
       mv.visitLabel(endLabel)
       // finally on exception
       fin.foreach { f =>

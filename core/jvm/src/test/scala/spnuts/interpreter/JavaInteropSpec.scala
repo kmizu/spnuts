@@ -208,7 +208,7 @@ class JavaInteropSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll:
         list = new java.util.ArrayList()
         list.get(99)
         "no error"
-      } catch (java.lang.IndexOutOfBoundsException e) {
+      } catch (e: java.lang.IndexOutOfBoundsException) {
         "caught"
       }
     """) shouldBe "caught"
@@ -219,7 +219,7 @@ class JavaInteropSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll:
       try {
         java.lang.Integer.parseInt("not-a-number")
         "no error"
-      } catch (java.lang.NumberFormatException e) {
+      } catch (e: java.lang.NumberFormatException) {
         "caught: " + e.getMessage()
       }
     """).asInstanceOf[String] should startWith("caught:")

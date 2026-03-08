@@ -133,8 +133,10 @@ m = { "a" => 1, "b" => 2 }
 // Try/catch
 try {
   throw "oops"
-} catch (java.lang.RuntimeException e) {
+} catch (e: java.lang.RuntimeException) {
   println("caught: " + e.getMessage())
+} catch (e) {
+  println("catch-all: " + e.getMessage())
 }
 
 // Switch

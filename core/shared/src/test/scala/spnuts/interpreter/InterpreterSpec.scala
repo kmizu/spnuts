@@ -213,7 +213,7 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
     run("""
       try {
         throw "oops"
-      } catch (java.lang.RuntimeException e) {
+      } catch (e: java.lang.RuntimeException) {
         "caught"
       }
     """) shouldBe "caught"
@@ -490,9 +490,9 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
       x = 0
       try {
         try { throw "err" }
-        catch (java.lang.RuntimeException e) { x = 1 }
+        catch (e: java.lang.RuntimeException) { x = 1 }
         finally { x = x + 10 }
-      } catch (java.lang.Exception e) { x = 99 }
+      } catch (e: java.lang.Exception) { x = 99 }
       x
     """) shouldBe 11L
   }

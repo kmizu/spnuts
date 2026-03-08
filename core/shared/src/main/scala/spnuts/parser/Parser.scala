@@ -783,11 +783,11 @@ final class Parser(tokens: IndexedSeq[Token]):
     while check(TK.Catch) do
       val cp = current.pos; advance()
       expect(TK.LParen)
-      val typeName = parseClassName()
-      val varName  = expect(TK.Ident).image
+      val varName = expect(TK.Ident).image
+      val exType  = if check(TK.Colon) then { advance(); Some(parseTypeName()) } else None
       expect(TK.RParen)
       val cb = parseBlock2()
-      catches += CatchClause(typeName, varName, cb, cp)
+      catches += CatchClause(varName, exType, cb, cp)
       skipEols()
     val fin = if check(TK.Finally) then
       advance()
