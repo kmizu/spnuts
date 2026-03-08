@@ -124,7 +124,8 @@ function range_gen(n) {
   i = 0
   while (i < n) { yield i; i = i + 1 }
 }
-println(range_gen(5))  // [0, 1, 2, 3, 4]
+for (x : range_gen(5)) print(str(x) + " ")  // 0 1 2 3 4
+println(join(toList(range_gen(3)), ", "))     // 0, 1, 2
 
 // Map literals
 m = { "a" => 1, "b" => 2 }
@@ -133,7 +134,7 @@ m = { "a" => 1, "b" => 2 }
 try {
   throw "oops"
 } catch (java.lang.RuntimeException e) {
-  println("caught: \(e.getMessage())")
+  println("caught: " + e.getMessage())
 }
 
 // Switch
