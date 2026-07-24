@@ -31,9 +31,18 @@ class Repl(val ctx: Context = Context()):
             case _: spnuts.runtime.PnutsGroup => "" // suppress function def display
             case _                            => formatResult(result)
         catch
-          case e: ParseError   => s"Parse error: ${e.message}"
-          case e: RuntimeError => s"Runtime error: ${e.msg}"
+          case e: ParseError   => formatError("Parse error", e.pos, e.message, code)
+          case e: RuntimeError => formatError("Runtime error", e.pos, e.msg, code)
           case e: Throwable    => s"Error: ${e.getMessage}"
+
+  private def formatError(kind: String, pos: SourcePos, msg: String, source: String): String =
+    val header = s"$kind at $pos: $msg"
+    val lines  = source.split("\n", -1)
+    if pos.line >= 1 && pos.line <= lines.length then
+      val srcLine = lines(pos.line - 1)
+      val caret   = " " * math.max(0, pos.column - 1) + "^"
+      s"$header\n  $srcLine\n  $caret"
+    else header
 
   private def formatResult(v: Any): String = v match
     case arr: Array[?] => s"[${arr.map(formatResult).mkString(", ")}]"

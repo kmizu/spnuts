@@ -25,3 +25,28 @@ class ReplSpec extends AnyFlatSpec with Matchers:
     repl.eval("") shouldBe ""
     repl.eval("   ") shouldBe ""
   }
+
+  it should "include file:line:column and a caret in parse error output" in {
+    val repl = freshRepl()
+    val out  = repl.eval("1 + )")
+    out should include ("<repl>:1:5")
+    out should include ("1 + )")
+    out should include ("^")
+  }
+
+  it should "point the caret at the correct column for a multi-line buffer" in {
+    val repl = freshRepl()
+    val out  = repl.eval("x = 1\n1 + )")
+    out should include ("<repl>:2:5")
+    val lines = out.split("\n")
+    // caret line is the last line; rendered as "  1 + )" (2-space indent),
+    // so column 5 (1-indexed) lands '^' at string index 2 + 4 = 6
+    lines.last.indexOf('^') shouldBe 6
+  }
+
+  it should "include file:line:column in runtime error output" in {
+    val repl = freshRepl()
+    val out  = repl.eval("null.foo()")
+    out should include ("<repl>:1:5")
+    out should include ("Runtime error")
+  }
