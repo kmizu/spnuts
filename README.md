@@ -28,9 +28,10 @@ sbt "replJVM/run"
 SPnuts 0.1-SNAPSHOT (Scala reimplementation)
 Thanks to Tomatsu-san for the original Pnuts.
 Type :quit to exit, :help for commands.
-pnuts> 1 + 2
-3
-pnuts> function fib(n) if (n <= 1) n else fib(n-1) + fib(n-2)
+pnuts> function fib(n) {
+..... if (n <= 1) n
+..... else fib(n - 1) + fib(n - 2)
+..... }
 pnuts> fib(10)
 55
 pnuts> :quit
@@ -42,6 +43,12 @@ REPL commands:
 |---------|-------------|
 | `:help` | Show help |
 | `:quit` / `:exit` / `:q` | Exit |
+| `:load PATH` | Evaluate a script file into the current session |
+| `:bindings` | List variables defined so far in this session |
+
+Multi-line input is supported: if a statement is left open (an unclosed
+`{`, `(`, or `[`), the prompt changes to `..... ` and keeps reading until
+the statement is complete.
 
 ### Running a Script File
 
