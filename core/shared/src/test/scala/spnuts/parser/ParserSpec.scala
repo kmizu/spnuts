@@ -503,3 +503,29 @@ class ParserSpec extends AnyFlatSpec with Matchers:
     TypeExpr(List("Map"), List(TypeExpr(List("String"), Nil), TypeExpr(List("Long"), Nil)))
       .toDisplayString shouldBe "Map<String, Long>"
   }
+
+  "ParseError.unexpected" should "set unexpectedEof=true when the offending token is Eof" in {
+    val eofTok = Token(TokenKind.Eof, "", SourcePos("<test>", 1, 1))
+    val err = ParseError.unexpected(")", eofTok)
+    err.unexpectedEof shouldBe true
+  }
+
+  it should "set unexpectedEof=false when the offending token is not Eof" in {
+    val tok = Token(TokenKind.RBrace, "}", SourcePos("<test>", 1, 1))
+    val err = ParseError.unexpected(")", tok)
+    err.unexpectedEof shouldBe false
+  }
+
+  it should "propagate unexpectedEof=true from Parser.parse on truncated input" in {
+    val ex = intercept[ParseError] {
+      Parser.parse("if (true) {", "<test>")
+    }
+    ex.unexpectedEof shouldBe true
+  }
+
+  it should "propagate unexpectedEof=false from Parser.parse on a genuine syntax error" in {
+    val ex = intercept[ParseError] {
+      Parser.parse("}", "<test>")
+    }
+    ex.unexpectedEof shouldBe false
+  }
