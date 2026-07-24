@@ -4,6 +4,14 @@ import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 import spnuts.runtime.{Context, PnutsPackage}
 
+/** Discards everything written to it — java.io.Writer.nullWriter() isn't
+  * available under Scala Native, so this is used instead to keep the
+  * REPL banner out of test output on both platforms. */
+private object NullWriter extends java.io.Writer:
+  override def write(cbuf: Array[Char], off: Int, len: Int): Unit = ()
+  override def flush(): Unit = ()
+  override def close(): Unit = ()
+
 class ReplSpec extends AnyFlatSpec with Matchers:
 
   /** Fresh, isolated Repl — its own child package, so tests never see
@@ -12,7 +20,7 @@ class ReplSpec extends AnyFlatSpec with Matchers:
   def freshRepl(): Repl =
     counter += 1
     val pkg = PnutsPackage(s"replTest$counter", Some(PnutsPackage.global))
-    val ctx = Context(currentPackage = pkg, writer = new java.io.PrintWriter(java.io.Writer.nullWriter()))
+    val ctx = Context(currentPackage = pkg, writer = new java.io.PrintWriter(NullWriter))
     Repl(ctx)
 
   "Repl.eval" should "evaluate a simple expression and format the result" in {
@@ -102,7 +110,7 @@ class ReplSpec extends AnyFlatSpec with Matchers:
     counter += 1
     val pkg = PnutsPackage(s"replTest$counter", Some(PnutsPackage.global))
     pkg.set("preExistingBuiltinLike", 999) // simulates a built-in already bound at REPL startup
-    val ctx  = Context(currentPackage = pkg, writer = new java.io.PrintWriter(java.io.Writer.nullWriter()))
+    val ctx  = Context(currentPackage = pkg, writer = new java.io.PrintWriter(NullWriter))
     val repl = Repl(ctx)
 
     repl.step("replTestBindingsVar = 5")

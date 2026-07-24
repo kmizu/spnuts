@@ -6,27 +6,29 @@ package spnuts.repl
  */
 object Main:
   def main(args: Array[String]): Unit =
+    spnuts.runtime.PnutsPackage.initGlobals()
     val repl = Repl()
 
     if args.nonEmpty then
-      val src = scala.io.Source.fromFile(args(0)).mkString
       try
+        val src = scala.io.Source.fromFile(args(0)).mkString
         val result = repl.eval(src)
         if result.nonEmpty then println(result)
       catch
-        case _: QuitException => ()
+        case e: java.io.FileNotFoundException => println(s"Error: ${e.getMessage}")
     else
       var running = true
       while running do
-        print("pnuts> ")
+        print(repl.prompt)
         Console.flush()
         val line = scala.io.StdIn.readLine()
         if line == null then
           running = false
         else
           try
-            val result = repl.eval(line)
-            if result.nonEmpty then println(result)
+            repl.step(line) match
+              case StepResult.Continue    => ()
+              case StepResult.Output(txt) => if txt.nonEmpty then println(txt)
+              case StepResult.Quit        => running = false
           catch
-            case _: QuitException => running = false
-            case e: Throwable     => println(s"Error: ${e.getMessage}")
+            case e: Throwable => println(s"Error: ${e.getMessage}")
