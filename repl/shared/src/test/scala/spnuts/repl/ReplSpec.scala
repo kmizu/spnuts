@@ -50,3 +50,45 @@ class ReplSpec extends AnyFlatSpec with Matchers:
     out should include ("<repl>:1:5")
     out should include ("Runtime error")
   }
+
+  "Repl.step" should "evaluate a complete single line immediately" in {
+    val repl = freshRepl()
+    repl.step("40 + 2") shouldBe StepResult.Output("42")
+    repl.prompt shouldBe "pnuts> "
+  }
+
+  it should "return Continue for an unclosed brace and switch to the continuation prompt" in {
+    val repl = freshRepl()
+    repl.step("if (true) {") shouldBe StepResult.Continue
+    repl.prompt shouldBe "..... "
+  }
+
+  it should "complete a multi-line if-block across multiple step calls" in {
+    val repl = freshRepl()
+    repl.step("if (true) {") shouldBe StepResult.Continue
+    repl.step("  99") shouldBe StepResult.Continue
+    repl.step("}") shouldBe StepResult.Output("99")
+    repl.prompt shouldBe "pnuts> "
+  }
+
+  it should "report a genuine syntax error immediately instead of buffering forever" in {
+    val repl = freshRepl()
+    val result = repl.step("1 + )")
+    result shouldBe a [StepResult.Output]
+    val StepResult.Output(text) = result: @unchecked
+    text should include ("Parse error")
+    repl.prompt shouldBe "pnuts> "
+  }
+
+  it should "return Quit for :quit, :exit, and :q" in {
+    freshRepl().step(":quit") shouldBe StepResult.Quit
+    freshRepl().step(":exit") shouldBe StepResult.Quit
+    freshRepl().step(":q") shouldBe StepResult.Quit
+  }
+
+  it should "keep buffering across multiple lines until a function body closes" in {
+    val repl = freshRepl()
+    repl.step("function replTestColonBody(n) {") shouldBe StepResult.Continue
+    repl.step("  n") shouldBe StepResult.Continue
+    repl.step("}") shouldBe a [StepResult.Output]
+  }

@@ -5,6 +5,12 @@ import spnuts.interpreter.{Interpreter, RuntimeError}
 import spnuts.parser.{Lexer, Parser, ParseError}
 import spnuts.runtime.{Context, Operators}
 
+/** Result of feeding one line of interactive input to a Repl. */
+enum StepResult:
+  case Continue
+  case Output(text: String)
+  case Quit
+
 /**
  * Interactive REPL for SPnuts.
  * Platform-specific subclasses provide readline / JLine support.
@@ -12,10 +18,46 @@ import spnuts.runtime.{Context, Operators}
 class Repl(val ctx: Context = Context()):
   ctx.writer.println(banner)
 
+  private var buffer: String = ""
+
   private def banner: String =
     """SPnuts 0.1-SNAPSHOT (Scala reimplementation)
       |Thanks to Tomatsu-san for the original Pnuts.
       |Type :quit to exit, :help for commands.""".stripMargin
+
+  /** Prompt to show for the next line of input. */
+  def prompt: String = if buffer.isEmpty then "pnuts> " else "..... "
+
+  /**
+   * Feed one line of interactive input. Commands (`:quit`, `:help`, ...) are
+   * only recognized when not in the middle of a multi-line statement.
+   * Incomplete statements are buffered across calls until a full statement
+   * can be parsed, at which point it's evaluated via `eval`.
+   */
+  def step(line: String): StepResult =
+    if buffer.isEmpty then
+      line.trim match
+        case ":quit" | ":exit" | ":q" => return StepResult.Quit
+        case ":help"                  => return StepResult.Output(helpText)
+        case ""                       => return StepResult.Output("")
+        case _                        => ()
+
+    val candidate = if buffer.isEmpty then line else buffer + "\n" + line
+    if isIncomplete(candidate) then
+      buffer = candidate
+      StepResult.Continue
+    else
+      buffer = ""
+      StepResult.Output(eval(candidate))
+
+  /** True if `code` fails to parse only because it ran out of input. */
+  private def isIncomplete(code: String): Boolean =
+    try
+      Parser.parse(code, "<repl>")
+      false
+    catch
+      case e: ParseError => e.unexpectedEof
+      case _: Throwable  => false
 
   def eval(line: String): String =
     if line.isBlank then return ""
