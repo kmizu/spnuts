@@ -39,6 +39,8 @@ class Repl(val ctx: Context = Context()):
       line.trim match
         case ":quit" | ":exit" | ":q" => return StepResult.Quit
         case ":help"                  => return StepResult.Output(helpText)
+        case cmd if cmd.startsWith(":load ") =>
+          return StepResult.Output(loadFile(cmd.stripPrefix(":load ").trim))
         case ""                       => return StepResult.Output("")
         case _                        => ()
 
@@ -58,6 +60,13 @@ class Repl(val ctx: Context = Context()):
     catch
       case e: ParseError => e.unexpectedEof
       case _: Throwable  => false
+
+  private def loadFile(path: String): String =
+    try
+      val content = scala.io.Source.fromFile(path).mkString
+      eval(content)
+    catch
+      case e: Throwable => s"Error loading '$path': ${e.getMessage}"
 
   def eval(line: String): String =
     if line.isBlank then return ""
