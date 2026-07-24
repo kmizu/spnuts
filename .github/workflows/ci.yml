@@ -26,6 +26,9 @@ jobs:
       - name: Run JVM tests
         run: sbt "coreJVM/test"
 
+      - name: Run REPL JVM tests
+        run: sbt "replJVM/test"
+
   test-native:
     name: Scala Native Tests
     runs-on: ubuntu-latest
@@ -49,3 +52,6 @@ jobs:
 
       - name: Run Scala Native tests
         run: sbt "coreNative/test"
+
+      - name: Run REPL Native tests
+        run: sbt "replNative/test"

@@ -45,7 +45,10 @@ lazy val repl = crossProject(JVMPlatform, NativePlatform)
   .crossType(CrossType.Full)
   .in(file("repl"))
   .dependsOn(core)
-  .settings(name := "spnuts-repl")
+  .settings(
+    name := "spnuts-repl",
+    libraryDependencies += "org.scalatest" %%% "scalatest" % "3.2.19" % Test,
+  )
   .jvmSettings(
     libraryDependencies += "org.jline" % "jline" % "3.27.1",
     Compile / mainClass := Some("spnuts.repl.Main"),

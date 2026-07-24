@@ -9,8 +9,7 @@ import spnuts.runtime.{Context, Operators}
  * Interactive REPL for SPnuts.
  * Platform-specific subclasses provide readline / JLine support.
  */
-class Repl:
-  val ctx: Context = Context()
+class Repl(val ctx: Context = Context()):
   ctx.writer.println(banner)
 
   private def banner: String =
