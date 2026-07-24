@@ -16,6 +16,9 @@ enum StepResult:
  * Platform-specific subclasses provide readline / JLine support.
  */
 class Repl(val ctx: Context = Context()):
+  private val initialBindingNames: Set[String] =
+    ctx.currentPackage.allBindings.map(_._1).toSet
+
   ctx.writer.println(banner)
 
   private var buffer: String = ""
@@ -39,6 +42,7 @@ class Repl(val ctx: Context = Context()):
       line.trim match
         case ":quit" | ":exit" | ":q" => return StepResult.Quit
         case ":help"                  => return StepResult.Output(helpText)
+        case ":bindings"              => return StepResult.Output(bindingsText)
         case cmd if cmd.startsWith(":load ") =>
           return StepResult.Output(loadFile(cmd.stripPrefix(":load ").trim))
         case ""                       => return StepResult.Output("")
@@ -67,6 +71,14 @@ class Repl(val ctx: Context = Context()):
       eval(content)
     catch
       case e: Throwable => s"Error loading '$path': ${e.getMessage}"
+
+  private def bindingsText: String =
+    val userDefined = ctx.currentPackage.allBindings
+      .filterNot((name, _) => initialBindingNames.contains(name))
+      .toSeq
+      .sortBy(_._1)
+    if userDefined.isEmpty then "(no user-defined bindings)"
+    else userDefined.map((name, b) => s"$name = ${formatResult(b.value)}").mkString("\n")
 
   def eval(line: String): String =
     if line.isBlank then return ""
@@ -108,8 +120,10 @@ class Repl(val ctx: Context = Context()):
     case v         => v.toString
 
   private def helpText: String =
-    """:help  — this message
-      |:quit  — exit REPL
+    """:help      — this message
+      |:quit      — exit REPL
+      |:load PATH — evaluate a script file into this session
+      |:bindings  — list variables defined in this session
       |Any Pnuts expression is evaluated and the result printed.""".stripMargin
 
 class QuitException extends Exception("quit")

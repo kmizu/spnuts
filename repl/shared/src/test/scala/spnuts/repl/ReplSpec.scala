@@ -92,3 +92,23 @@ class ReplSpec extends AnyFlatSpec with Matchers:
     repl.step("  n") shouldBe StepResult.Continue
     repl.step("}") shouldBe a [StepResult.Output]
   }
+
+  ":bindings" should "report no user-defined bindings right after construction" in {
+    val repl = freshRepl()
+    repl.step(":bindings") shouldBe StepResult.Output("(no user-defined bindings)")
+  }
+
+  it should "list a variable defined after construction, but never a binding that existed before it" in {
+    counter += 1
+    val pkg = PnutsPackage(s"replTest$counter", Some(PnutsPackage.global))
+    pkg.set("preExistingBuiltinLike", 999) // simulates a built-in already bound at REPL startup
+    val ctx  = Context(currentPackage = pkg, writer = new java.io.PrintWriter(java.io.Writer.nullWriter()))
+    val repl = Repl(ctx)
+
+    repl.step("replTestBindingsVar = 5")
+    val result = repl.step(":bindings")
+    result shouldBe a [StepResult.Output]
+    val StepResult.Output(text) = result: @unchecked
+    text should include ("replTestBindingsVar = 5")
+    text should not include ("preExistingBuiltinLike")
+  }
