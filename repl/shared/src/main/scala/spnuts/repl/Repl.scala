@@ -80,23 +80,21 @@ class Repl(val ctx: Context = Context()):
     if userDefined.isEmpty then "(no user-defined bindings)"
     else userDefined.map((name, b) => s"$name = ${formatResult(b.value)}").mkString("\n")
 
-  def eval(line: String): String =
-    if line.isBlank then return ""
-    line.trim match
-      case ":quit" | ":exit" | ":q" => throw QuitException()
-      case ":help"                   => helpText
-      case code =>
-        try
-          val expr   = Parser.parse(code, "<repl>")
-          val result = Interpreter.eval(expr, ctx)
-          if result == null then ""
-          else result match
-            case _: spnuts.runtime.PnutsGroup => "" // suppress function def display
-            case _                            => formatResult(result)
-        catch
-          case e: ParseError   => formatError("Parse error", e.pos, e.message, code)
-          case e: RuntimeError => formatError("Runtime error", e.pos, e.msg, code)
-          case e: Throwable    => s"Error: ${e.getMessage}"
+  /** Evaluate a complete chunk of code (used for whole-script-file execution
+    * and once `step` has assembled a complete interactive statement). */
+  def eval(code: String): String =
+    if code.isBlank then return ""
+    try
+      val expr   = Parser.parse(code, "<repl>")
+      val result = Interpreter.eval(expr, ctx)
+      if result == null then ""
+      else result match
+        case _: spnuts.runtime.PnutsGroup => "" // suppress function def display
+        case _                            => formatResult(result)
+    catch
+      case e: ParseError   => formatError("Parse error", e.pos, e.message, code)
+      case e: RuntimeError => formatError("Runtime error", e.pos, e.msg, code)
+      case e: Throwable    => s"Error: ${e.getMessage}"
 
   private def formatError(kind: String, pos: SourcePos, msg: String, source: String): String =
     val header = s"$kind at $pos: $msg"
@@ -125,5 +123,3 @@ class Repl(val ctx: Context = Context()):
       |:load PATH — evaluate a script file into this session
       |:bindings  — list variables defined in this session
       |Any Pnuts expression is evaluated and the result printed.""".stripMargin
-
-class QuitException extends Exception("quit")
