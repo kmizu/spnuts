@@ -2,13 +2,21 @@ package spnuts.typing
 
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
-import spnuts.ast.BinaryExpr
+import spnuts.ast.*
 import spnuts.parser.Parser
 import spnuts.typing.StaticType.*
 
 class TypeCheckerSpec extends AnyFlatSpec with Matchers:
   private def check(code: String, env: TypeEnvironment = TypeEnvironment.empty) =
     TypeChecker.check(Parser.parse(code, "<test>"), env)
+
+  private def invalidExpression(pos: SourcePos): Expr =
+    BinaryExpr(
+      BinOp.Sub,
+      BoolLit(true, pos),
+      StringLit("x", pos),
+      pos
+    )
 
   "TypeChecker" should "infer and persist a legacy assignment type" in {
     val result = check("x = 1")
@@ -337,4 +345,278 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
     intercept[TypeError](check("""return true - "x""""))
     intercept[TypeError](check("""yield true - "x""""))
     intercept[TypeError](check("""break true - "x""""))
+  }
+
+  it should "use Any for unannotated parameters and infer returns" in {
+    val result = check("function id(x) x")
+    result.nextEnvironment.lookup("id").map(_.tpe) shouldBe
+      Some(FunctionType(List(AnyType), AnyType, None))
+  }
+
+  it should "check annotated parameters and returns before execution" in {
+    check("function add(x: Long, y: Long): Long x + y").resultType shouldBe
+      FunctionType(List(LongType, LongType), LongType, None)
+    val error = intercept[TypeError] {
+      check("""function bad(x: Long): String x + 1""")
+    }
+    error.expected shouldBe Some(StringType)
+    error.actual shouldBe Some(LongType)
+  }
+
+  it should "predeclare named functions for recursion" in {
+    noException should be thrownBy check(
+      "function fact(n: Long): Long if (n <= 1) 1 else n * fact(n - 1)"
+    )
+  }
+
+  it should "validate known function arity and arguments" in {
+    intercept[TypeError] {
+      check("""function f(x: Long): Long x; f("bad")""")
+    }
+    intercept[TypeError] {
+      check("function f(x: Long): Long x; f()")
+    }
+  }
+
+  it should "validate known vararg arguments" in {
+    check("function f(xs: Long*): Long 0; f(1, 2, 3)").resultType shouldBe LongType
+
+    val error = intercept[TypeError] {
+      check("""function f(xs: Long*): Long 0; f(1, "bad")""")
+    }
+    error.expected shouldBe Some(LongType)
+    error.actual shouldBe Some(StringType)
+  }
+
+  it should "collect explicit returns within the innermost function" in {
+    check(
+      """function outer(): Long {
+        |  function inner(): String { return "inner" }
+        |  return 1
+        |}""".stripMargin
+    ).resultType shouldBe FunctionType(Nil, LongType, None)
+
+    val error = intercept[TypeError] {
+      check("""function bad(x: Long): Long { if (true) return "bad"; x }""")
+    }
+    error.expected shouldBe Some(LongType)
+    error.actual shouldBe Some(StringType)
+  }
+
+  it should "keep class body returns out of enclosing functions" in {
+    val pos = SourcePos("<test>", 1, 1)
+    val method = MethodDef(
+      Some(List("String")),
+      "text",
+      Nil,
+      ReturnExpr(Some(StringLit("method", pos)), pos)
+    )
+    val field = FieldDef(
+      Some(List("String")),
+      "label",
+      Some(ReturnExpr(Some(StringLit("field", pos)), pos))
+    )
+    val outer = FuncDef(
+      Some("outer"),
+      Nil,
+      false,
+      Block(
+        List(
+          ClassDef(
+            "Inner",
+            None,
+            Nil,
+            ClassDefBody(List(field), List(method)),
+            pos
+          ),
+          IntLit(1, "1", pos)
+        ),
+        pos
+      ),
+      pos,
+      returnType = Some(TypeExpr(List("Long")))
+    )
+
+    TypeChecker.check(outer, TypeEnvironment.empty).resultType shouldBe
+      FunctionType(Nil, LongType, None)
+  }
+
+  it should "normalize function type variables" in {
+    check("function id<T>(x: T): T x").resultType shouldBe
+      FunctionType(List(TypeVariable("T")), TypeVariable("T"), None)
+  }
+
+  it should "reject known non-function values" in {
+    val error = intercept[TypeError] {
+      check("val value = 1; value()")
+    }
+    error.actual shouldBe Some(LongType)
+  }
+
+  it should "keep overloaded function groups dynamic" in {
+    val result = check(
+      """function f(x: Long): Long x
+        |function f(x: Long, y: Long): Long x + y
+        |f(1)""".stripMargin
+    )
+
+    result.resultType shouldBe AnyType
+    result.nextEnvironment.lookup("f") shouldBe Some(TypeBinding(AnyType, false))
+  }
+
+  it should "treat Java, host, and eval results as Any" in {
+    check("java.lang.System.currentTimeMillis()").resultType shouldBe AnyType
+    check("""eval("1")""").resultType shouldBe AnyType
+    check("unknownHostBinding").resultType shouldBe AnyType
+  }
+
+  it should "traverse receivers and arguments at dynamic member boundaries" in {
+    val pos = SourcePos("<test>", 1, 1)
+    val invalid = invalidExpression(pos)
+    val safeReceiver = Ident("dynamic", pos)
+    val expressions = List[Expr](
+      InstanceofExpr(invalid, List("String"), pos),
+      MemberAccess(invalid, "value", pos),
+      StaticMemberAccess(invalid, "value", pos),
+      MethodCall(invalid, "call", Nil, pos),
+      MethodCall(safeReceiver, "call", List(invalid), pos),
+      StaticMethodCall(invalid, "call", Nil, pos),
+      StaticMethodCall(safeReceiver, "call", List(invalid), pos)
+    )
+
+    expressions.foreach { expression =>
+      intercept[TypeError] {
+        TypeChecker.check(expression, TypeEnvironment.empty)
+      }
+    }
+  }
+
+  it should "traverse every nested construction and class expression" in {
+    val pos = SourcePos("<test>", 1, 1)
+    val invalid = invalidExpression(pos)
+    val safe = IntLit(1, "1", pos)
+    val invalidField = FieldDef(None, "field", Some(invalid))
+    val invalidMethod = MethodDef(None, "method", Nil, invalid)
+    val expressions = List[Expr](
+      NewExpr(List("Widget"), List(invalid), Nil, None, pos),
+      NewExpr(List("Widget"), Nil, List(invalid), None, pos),
+      NewExpr(
+        List("Widget"),
+        Nil,
+        Nil,
+        Some(ClassDefBody(List(invalidField), Nil)),
+        pos
+      ),
+      NewExpr(
+        List("Widget"),
+        Nil,
+        Nil,
+        Some(ClassDefBody(Nil, List(invalidMethod))),
+        pos
+      ),
+      CastExpr(List("Widget"), 0, invalid, pos),
+      ClassExpr(invalid, pos),
+      BeanDef(List("Widget"), List(BeanProperty("value", invalid, false)), pos),
+      ClassDef(
+        "Widget",
+        None,
+        Nil,
+        ClassDefBody(List(invalidField), Nil),
+        pos
+      ),
+      ClassDef(
+        "Widget",
+        None,
+        Nil,
+        ClassDefBody(Nil, List(invalidMethod)),
+        pos
+      )
+    )
+
+    expressions.foreach { expression =>
+      intercept[TypeError] {
+        TypeChecker.check(expression, TypeEnvironment.empty)
+      }
+    }
+
+    noException should be thrownBy TypeChecker.check(
+      NewExpr(List("Widget"), List(safe), List(safe), None, pos),
+      TypeEnvironment.empty
+    )
+  }
+
+  it should "traverse dynamic package and import names" in {
+    val pos = SourcePos("<test>", 1, 1)
+    val invalid = invalidExpression(pos)
+
+    intercept[TypeError] {
+      TypeChecker.check(
+        PackageExpr(List("example"), Some(invalid), pos),
+        TypeEnvironment.empty
+      )
+    }
+    intercept[TypeError] {
+      TypeChecker.check(
+        ImportExpr(List("example"), false, false, Some(invalid), pos),
+        TypeEnvironment.empty
+      )
+    }
+  }
+
+  it should "assign deliberate conservative types to dynamic AST nodes" in {
+    val pos = SourcePos("<test>", 1, 1)
+    val safe = IntLit(1, "1", pos)
+
+    TypeChecker.check(
+      InstanceofExpr(safe, List("String"), pos),
+      TypeEnvironment.empty
+    ).resultType shouldBe BooleanType
+    TypeChecker.check(
+      MemberAccess(safe, "value", pos),
+      TypeEnvironment.empty
+    ).resultType shouldBe AnyType
+    TypeChecker.check(
+      MethodCall(safe, "call", Nil, pos),
+      TypeEnvironment.empty
+    ).resultType shouldBe AnyType
+    TypeChecker.check(
+      NewExpr(List("example", "Widget"), Nil, Nil, None, pos),
+      TypeEnvironment.empty
+    ).resultType shouldBe NamedType("example.Widget")
+    TypeChecker.check(
+      CastExpr(List("example", "Widget"), 0, safe, pos),
+      TypeEnvironment.empty
+    ).resultType shouldBe NamedType("example.Widget")
+    TypeChecker.check(
+      ClassExpr(safe, pos),
+      TypeEnvironment.empty
+    ).resultType shouldBe AnyType
+    TypeChecker.check(
+      ClassRef(List("example", "Widget"), pos),
+      TypeEnvironment.empty
+    ).resultType shouldBe NamedType("example.Widget")
+    TypeChecker.check(
+      BeanDef(List("example", "Widget"), Nil, pos),
+      TypeEnvironment.empty
+    ).resultType shouldBe NamedType("example.Widget")
+    TypeChecker.check(
+      ClassDef("Widget", None, Nil, ClassDefBody(Nil, Nil), pos),
+      TypeEnvironment.empty
+    ).resultType shouldBe UnitType
+    TypeChecker.check(
+      PackageExpr(List("example"), None, pos),
+      TypeEnvironment.empty
+    ).resultType shouldBe UnitType
+    TypeChecker.check(
+      ImportExpr(List("example"), false, false, None, pos),
+      TypeEnvironment.empty
+    ).resultType shouldBe UnitType
+
+    val recordResult = TypeChecker.check(
+      RecordDef("Person", List(RecordField(Some("String"), "name")), pos),
+      TypeEnvironment.empty
+    )
+    recordResult.resultType shouldBe UnitType
+    recordResult.nextEnvironment.lookup("Person") shouldBe
+      Some(TypeBinding(AnyType, false))
   }

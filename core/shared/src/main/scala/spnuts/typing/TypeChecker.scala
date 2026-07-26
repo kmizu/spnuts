@@ -10,8 +10,14 @@ object TypeChecker:
     TypingResult(checker.table, checker.topLevelEnvironment, result)
 
   private final class Checker(initialEnvironment: TypeEnvironment):
+    private final case class FunctionContext(
+      expectedReturn: Option[StaticType],
+      returns: collection.mutable.ListBuffer[(StaticType, SourcePos)]
+    )
+
     val table: TypeTable = TypeTable()
     private var environment = initialEnvironment
+    private var functionContexts = List.empty[FunctionContext]
 
     def topLevelEnvironment: TypeEnvironment = environment
 
@@ -135,6 +141,28 @@ object TypeChecker:
                 case _ => ()
             case _ => ()
           typed(expr, resultType)
+
+        case InstanceofExpr(value, _, _) =>
+          infer(value, None)
+          typed(expr, BooleanType)
+
+        case MemberAccess(obj, _, _) =>
+          infer(obj, None)
+          typed(expr, AnyType)
+
+        case StaticMemberAccess(obj, _, _) =>
+          infer(obj, None)
+          typed(expr, AnyType)
+
+        case MethodCall(obj, _, args, _) =>
+          infer(obj, None)
+          args.foreach(infer(_, None))
+          typed(expr, AnyType)
+
+        case StaticMethodCall(obj, _, args, _) =>
+          infer(obj, None)
+          args.foreach(infer(_, None))
+          typed(expr, AnyType)
 
         case ListExpr(elements, _, _) =>
           val elementTypes = elements.map(infer(_, None))
@@ -265,6 +293,173 @@ object TypeChecker:
           }
           typed(expr, resultType)
 
+        case FuncDef(name, params, varargs, body, _, typeParams, paramTypes, returnType) =>
+          val typeVariables = typeParams.toSet
+          val normalizedParams = params.indices.map { index =>
+            paramTypes
+              .lift(index)
+              .flatten
+              .map(StaticType.fromTypeExpr(_, typeVariables))
+              .getOrElse(AnyType)
+          }.toList
+          val normalizedReturn =
+            returnType.map(StaticType.fromTypeExpr(_, typeVariables))
+          val (fixedParams, varargElement) =
+            if varargs && normalizedParams.nonEmpty then
+              normalizedParams.dropRight(1) -> normalizedParams.lastOption
+            else
+              normalizedParams -> None
+          val provisionalType =
+            FunctionType(
+              fixedParams,
+              normalizedReturn.getOrElse(AnyType),
+              varargElement
+            )
+          val keepDynamicBinding = name
+            .flatMap(environment.lookup)
+            .exists { existing =>
+              existing.tpe match
+                case AnyType => true
+                case existingFunction: FunctionType =>
+                  !usesSameRuntimeSlot(existingFunction, provisionalType)
+                case _ => false
+            }
+
+          name.foreach { functionName =>
+            environment = environment.declare(
+              functionName,
+              TypeBinding(provisionalType, false)
+            )
+          }
+
+          val context = FunctionContext(
+            normalizedReturn,
+            collection.mutable.ListBuffer.empty
+          )
+          val bodyType = withFunctionContext(context) {
+            withScope {
+              params.zip(normalizedParams).zipWithIndex.foreach {
+                case ((paramName, paramType), index) =>
+                  val bindingType =
+                    if varargs && index == params.length - 1 then ArrayType(paramType)
+                    else paramType
+                  environment = environment.declare(
+                    paramName,
+                    TypeBinding(bindingType, false)
+                  )
+              }
+              infer(body, None)
+            }
+          }
+          val inferredReturns = context.returns.toList :+ (bodyType -> body.pos)
+          context.expectedReturn.foreach { expectedReturn =>
+            inferredReturns.foreach { (actualReturn, returnPos) =>
+              requireCompatible(
+                expectedReturn,
+                actualReturn,
+                returnPos,
+                "Function return has an incompatible type"
+              )
+            }
+          }
+          val finalType =
+            FunctionType(
+              fixedParams,
+              normalizedReturn.getOrElse(
+                TypeRules.joinAll(inferredReturns.map(_._1), AnyType)
+              ),
+              varargElement
+            )
+          name.foreach { functionName =>
+            environment = environment.update(
+              functionName,
+              TypeBinding(
+                if keepDynamicBinding then AnyType else finalType,
+                false
+              )
+            )
+          }
+          typed(expr, finalType)
+
+        case FuncCall(func, args, pos) =>
+          val functionType = infer(func, None)
+          val argumentTypes = args.map(infer(_, None))
+          val resultType = functionType match
+            case FunctionType(parameters, result, None) =>
+              requireArity(parameters.length, argumentTypes.length, pos)
+              requireArguments(parameters, args, argumentTypes)
+              result
+            case FunctionType(parameters, result, Some(varargElement)) =>
+              if argumentTypes.length < parameters.length then
+                throw TypeError(
+                  s"Function expects at least ${parameters.length} arguments but got ${argumentTypes.length}",
+                  pos
+                )
+              requireArguments(
+                parameters,
+                args.take(parameters.length),
+                argumentTypes.take(parameters.length)
+              )
+              args.drop(parameters.length)
+                .zip(argumentTypes.drop(parameters.length))
+                .foreach { (argument, argumentType) =>
+                  requireCompatible(
+                    varargElement,
+                    argumentType,
+                    argument.pos,
+                    "Function argument has an incompatible type"
+                  )
+                }
+              result
+            case AnyType => AnyType
+            case other =>
+              throw TypeError(
+                "Cannot call a non-function value",
+                func.pos,
+                actual = Some(other)
+              )
+          typed(expr, resultType)
+
+        case NewExpr(className, dims, args, classBody, _) =>
+          dims.foreach(infer(_, None))
+          args.foreach(infer(_, None))
+          classBody.foreach(inferClassBody)
+          typed(expr, fixedNamedType(className))
+
+        case CastExpr(typeName, _, value, _) =>
+          infer(value, None)
+          typed(expr, fixedNamedType(typeName))
+
+        case ClassExpr(value, _) =>
+          infer(value, None)
+          typed(expr, AnyType)
+
+        case ClassRef(name, _) =>
+          typed(expr, fixedNamedType(name))
+
+        case BeanDef(typeName, props, _) =>
+          props.foreach(property => infer(property.value, None))
+          typed(expr, fixedNamedType(typeName))
+
+        case ClassDef(_, _, _, body, _) =>
+          inferClassBody(body)
+          typed(expr, UnitType)
+
+        case RecordDef(name, _, _) =>
+          environment = environment.declare(
+            name,
+            TypeBinding(AnyType, false)
+          )
+          typed(expr, UnitType)
+
+        case PackageExpr(_, dynamic, _) =>
+          dynamic.foreach(infer(_, None))
+          typed(expr, UnitType)
+
+        case ImportExpr(_, _, _, dynamic, _) =>
+          dynamic.foreach(infer(_, None))
+          typed(expr, UnitType)
+
         case TryExpr(body, catches, finallyBlock, _) =>
           val bodyType = infer(body, None)
           val catchTypes = catches.map { catchClause =>
@@ -294,8 +489,10 @@ object TypeChecker:
           finalizer.foreach(infer(_, None))
           typed(expr, bodyType)
 
-        case ReturnExpr(value, _) =>
-          typed(expr, value.map(infer(_, None)).getOrElse(UnitType))
+        case ReturnExpr(value, pos) =>
+          val returnType = value.map(infer(_, None)).getOrElse(UnitType)
+          functionContexts.headOption.foreach(_.returns += (returnType -> pos))
+          typed(expr, returnType)
 
         case YieldExpr(value, _) =>
           typed(expr, value.map(infer(_, None)).getOrElse(UnitType))
@@ -304,8 +501,6 @@ object TypeChecker:
           typed(expr, value.map(infer(_, None)).getOrElse(UnitType))
 
         case ContinueExpr(_) => typed(expr, UnitType)
-
-        case _ => typed(expr, AnyType)
 
       expected.foreach { expectedType =>
         requireCompatible(expectedType, inferred, expr.pos, "Expression has an incompatible type")
@@ -319,6 +514,85 @@ object TypeChecker:
       environment = environment.pushScope
       try body
       finally environment = environment.popScope
+
+    private def withFunctionContext[A](context: FunctionContext)(body: => A): A =
+      functionContexts = context :: functionContexts
+      try body
+      finally functionContexts = functionContexts.tail
+
+    private def requireArity(expected: Int, actual: Int, pos: SourcePos): Unit =
+      if expected != actual then
+        throw TypeError(
+          s"Function expects $expected arguments but got $actual",
+          pos
+        )
+
+    private def requireArguments(
+      parameters: List[StaticType],
+      arguments: List[Expr],
+      argumentTypes: List[StaticType]
+    ): Unit =
+      parameters.zip(arguments).zip(argumentTypes).foreach {
+        case ((parameterType, argument), argumentType) =>
+          requireCompatible(
+            parameterType,
+            argumentType,
+            argument.pos,
+            "Function argument has an incompatible type"
+          )
+      }
+
+    private def fixedNamedType(name: List[String]): StaticType =
+      if name.nonEmpty then NamedType(name.mkString("."))
+      else AnyType
+
+    private def usesSameRuntimeSlot(
+      existing: FunctionType,
+      current: FunctionType
+    ): Boolean =
+      (existing.varargElement, current.varargElement) match
+        case (Some(_), Some(_)) => true
+        case (None, None) => existing.parameters.length == current.parameters.length
+        case _ => false
+
+    private def inferClassBody(body: ClassDefBody): Unit =
+      val classContext =
+        FunctionContext(None, collection.mutable.ListBuffer.empty)
+      withFunctionContext(classContext) {
+        withScope {
+          body.fields.foreach { field =>
+            val fieldType =
+              field.init.map(infer(_, None)).getOrElse(
+                field.typeName
+                  .map(parts => StaticType.fromTypeExpr(TypeExpr(parts)))
+                  .getOrElse(AnyType)
+              )
+            environment = environment.declare(
+              field.name,
+              TypeBinding(fieldType, false)
+            )
+          }
+          body.methods.foreach { method =>
+            val methodContext =
+              FunctionContext(None, collection.mutable.ListBuffer.empty)
+            withFunctionContext(methodContext) {
+              withScope {
+                method.params.foreach { (typeName, name) =>
+                  val parameterType =
+                    typeName
+                      .map(parts => StaticType.fromTypeExpr(TypeExpr(parts)))
+                      .getOrElse(AnyType)
+                  environment = environment.declare(
+                    name,
+                    TypeBinding(parameterType, false)
+                  )
+                }
+                infer(method.body, None)
+              }
+            }
+          }
+        }
+      }
 
     private def declareForEachTargets(
       names: List[String],
