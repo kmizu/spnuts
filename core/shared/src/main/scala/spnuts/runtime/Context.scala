@@ -1,6 +1,7 @@
 package spnuts.runtime
 
 import java.io.{PrintWriter, Writer}
+import spnuts.typing.TypingSession
 
 /**
  * Execution context. Carries all mutable state for one script execution.
@@ -14,6 +15,7 @@ final class Context(
   var errorWriter: PrintWriter     = new PrintWriter(System.err, true),
 ):
   var stackFrame: Option[StackFrame] = None
+  val typingSession: TypingSession = TypingSession()
 
   /**
    * Buffer for yield values accumulated during a generator call.

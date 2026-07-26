@@ -363,6 +363,34 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
     error.actual shouldBe Some(LongType)
   }
 
+  it should "allow expression-valued bodies for Unit-returning functions" in {
+    noException should be thrownBy check(
+      """var log: String = ""
+        |function append(s: String): Unit { log = log + s }""".stripMargin
+    )
+  }
+
+  it should "reject forbidden lowercase types in every annotation shape" in {
+    val snippets = List(
+      "var value: int = 1",
+      "function f(value: long): Long value",
+      "function f(): void { 1 }",
+      "var values: List<int> = []",
+      "var values: int[] = []",
+      "var f: (int) -> Long = { value -> 1 }",
+      "try { 1 } catch (problem: boolean) { 2 }",
+      "(int) 1",
+      "1 instanceof boolean"
+    )
+
+    snippets.foreach { code =>
+      val error = intercept[TypeError] {
+        check(code)
+      }
+      error.msg should include("not allowed")
+    }
+  }
+
   it should "accept nested Any in annotated collection parameters and returns" in {
     check(
       "function take(xs: List<Any>): Long 0; take([1])"

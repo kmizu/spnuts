@@ -44,8 +44,8 @@ object TypeChecker:
         case Block(exprs, _) => typed(expr, withScope(inferSequence(exprs)))
         case ExprList(exprs, _) => typed(expr, inferSequence(exprs))
 
-        case VarDecl(kind, name, typeName, value, _) =>
-          val declaredType = typeName.map(StaticType.fromTypeExpr(_))
+        case VarDecl(kind, name, typeName, value, pos) =>
+          val declaredType = typeName.map(normalizeType(_, Set.empty, pos))
           val valueType = infer(value, declaredType)
           val bindingType = declaredType.getOrElse(valueType)
           environment = environment.declare(
@@ -142,7 +142,8 @@ object TypeChecker:
             case _ => ()
           typed(expr, resultType)
 
-        case InstanceofExpr(value, _, _) =>
+        case InstanceofExpr(value, typeName, pos) =>
+          validateFixedTypeName(typeName, pos)
           infer(value, None)
           typed(expr, BooleanType)
 
@@ -293,17 +294,17 @@ object TypeChecker:
           }
           typed(expr, resultType)
 
-        case FuncDef(name, params, varargs, body, _, typeParams, paramTypes, returnType) =>
+        case FuncDef(name, params, varargs, body, pos, typeParams, paramTypes, returnType) =>
           val typeVariables = typeParams.toSet
           val normalizedParams = params.indices.map { index =>
             paramTypes
               .lift(index)
               .flatten
-              .map(StaticType.fromTypeExpr(_, typeVariables))
+              .map(normalizeType(_, typeVariables, pos))
               .getOrElse(AnyType)
           }.toList
           val normalizedReturn =
-            returnType.map(StaticType.fromTypeExpr(_, typeVariables))
+            returnType.map(normalizeType(_, typeVariables, pos))
           val (fixedParams, varargElement) =
             if varargs && normalizedParams.nonEmpty then
               normalizedParams.dropRight(1) -> normalizedParams.lastOption
@@ -355,7 +356,7 @@ object TypeChecker:
             }
           }
           val inferredReturns = context.returns.toList :+ (bodyType -> body.pos)
-          context.expectedReturn.foreach { expectedReturn =>
+          context.expectedReturn.filterNot(_ == UnitType).foreach { expectedReturn =>
             inferredReturns.foreach { (actualReturn, returnPos) =>
               requireCompatible(
                 expectedReturn,
@@ -454,7 +455,8 @@ object TypeChecker:
           classBody.foreach(inferClassBody)
           typed(expr, fixedNamedType(className))
 
-        case CastExpr(typeName, _, value, _) =>
+        case CastExpr(typeName, _, value, pos) =>
+          validateFixedTypeName(typeName, pos)
           infer(value, None)
           typed(expr, fixedNamedType(typeName))
 
@@ -493,7 +495,9 @@ object TypeChecker:
           val catchTypes = catches.map { catchClause =>
             withScope {
               val caughtType =
-                catchClause.exType.map(StaticType.fromTypeExpr(_)).getOrElse(AnyType)
+                catchClause.exType
+                  .map(normalizeType(_, Set.empty, catchClause.pos))
+                  .getOrElse(AnyType)
               environment = environment.declare(
                 catchClause.varName,
                 TypeBinding(caughtType, false)
@@ -668,6 +672,29 @@ object TypeChecker:
     private def fixedNamedType(name: List[String]): StaticType =
       if name.nonEmpty then NamedType(name.mkString("."))
       else AnyType
+
+    private val forbiddenPrimitiveNames =
+      Set("byte", "char", "short", "int", "float", "double", "long", "boolean", "void")
+
+    private def normalizeType(
+      expr: TypeExpr,
+      typeVariables: Set[String],
+      pos: SourcePos
+    ): StaticType =
+      validateTypeExpr(expr, pos)
+      StaticType.fromTypeExpr(expr, typeVariables)
+
+    private def validateFixedTypeName(name: List[String], pos: SourcePos): Unit =
+      validateTypeExpr(TypeExpr(name), pos)
+
+    private def validateTypeExpr(expr: TypeExpr, pos: SourcePos): Unit =
+      val name = expr.name.mkString(".")
+      if forbiddenPrimitiveNames.contains(name) then
+        throw TypeError(
+          s"Primitive type '$name' is not allowed; use '${name.head.toUpper}${name.tail}' instead",
+          pos
+        )
+      expr.typeArgs.foreach(validateTypeExpr(_, pos))
 
     private def usesSameRuntimeSlot(
       existing: FunctionType,
