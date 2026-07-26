@@ -123,3 +123,120 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
     val error = intercept[TypeError](check("""true - "x""""))
     error.pos.line shouldBe 1
   }
+
+  it should "infer homogeneous, widened, and empty collections" in {
+    check("[1, 2]").resultType shouldBe ListType(LongType)
+    check("[1, 2.0]").resultType shouldBe ListType(DoubleType)
+    check("[]").resultType shouldBe ListType(AnyType)
+    check("""{"x" => 1}""").resultType shouldBe MapType(StringType, LongType)
+    TypeChecker.check(
+      spnuts.ast.MapExpr(Nil, spnuts.ast.SourcePos("<test>", 1, 1)),
+      TypeEnvironment.empty
+    ).resultType shouldBe MapType(AnyType, AnyType)
+  }
+
+  it should "infer index component types" in {
+    check("[1, 2][0]").resultType shouldBe LongType
+    check("""{"x" => 1}["x"]""").resultType shouldBe LongType
+  }
+
+  it should "join branch types and require Boolean-compatible conditions" in {
+    check("if (true) 1 else 2.0").resultType shouldBe DoubleType
+    check("""if (true) 1 else "x"""").resultType shouldBe AnyType
+    intercept[TypeError](check("if (1) 2 else 3"))
+    noException should be thrownBy check("x = eval(\"1\"); if (x) 2 else 3")
+  }
+
+  it should "keep block-local loop and catch names out of the top level" in {
+    val result = check("for (i : [1, 2]) { val local = i }; 0")
+    result.nextEnvironment.lookup("i") shouldBe None
+    result.nextEnvironment.lookup("local") shouldBe None
+  }
+
+  it should "infer ranges, slices, ternaries, switches, and missing branches" in {
+    check("true ? 1 : 2.0").resultType shouldBe DoubleType
+    check("""switch (1) { case 1: "x"; default: "y" }""").resultType shouldBe StringType
+    check("""if (true) "x"""").resultType shouldBe StringType
+    check("if (true) 1").resultType shouldBe AnyType
+
+    val pos = spnuts.ast.SourcePos("<test>", 1, 1)
+    val range = spnuts.ast.RangeExpr(
+      spnuts.ast.IntLit(1, "1", pos),
+      spnuts.ast.IntLit(3, "3", pos),
+      pos
+    )
+    TypeChecker.check(range, TypeEnvironment.empty).resultType shouldBe ListType(LongType)
+
+    val slice = spnuts.ast.RangeAccess(
+      spnuts.ast.ListExpr(List(spnuts.ast.IntLit(1, "1", pos)), false, pos),
+      spnuts.ast.IntLit(0, "0", pos),
+      None,
+      pos
+    )
+    TypeChecker.check(slice, TypeEnvironment.empty).resultType shouldBe ListType(LongType)
+  }
+
+  it should "validate collection indices and range bounds when their types are known" in {
+    intercept[TypeError](check("""[1]["x"]"""))
+    intercept[TypeError](check("""{"x" => 1}[1]"""))
+
+    val pos = spnuts.ast.SourcePos("<test>", 1, 1)
+    val range = spnuts.ast.RangeExpr(
+      spnuts.ast.IntLit(1, "1", pos),
+      spnuts.ast.StringLit("x", pos),
+      pos
+    )
+    intercept[TypeError](TypeChecker.check(range, TypeEnvironment.empty))
+  }
+
+  it should "bind collection components inside foreach scopes" in {
+    val pos = spnuts.ast.SourcePos("<test>", 1, 1)
+    val keyRef = spnuts.ast.Ident("key", pos)
+    val valueRef = spnuts.ast.Ident("value", pos)
+    val body = spnuts.ast.ExprList(List(keyRef, valueRef), pos)
+    val iterable = spnuts.ast.MapExpr(
+      List(spnuts.ast.StringLit("x", pos) -> spnuts.ast.IntLit(1, "1", pos)),
+      pos
+    )
+    val expression = spnuts.ast.ForEachExpr(List("key", "value"), iterable, body, pos)
+    val result = TypeChecker.check(expression, TypeEnvironment.empty)
+
+    result.table.get(keyRef) shouldBe Some(StringType)
+    result.table.get(valueRef) shouldBe Some(LongType)
+    result.nextEnvironment.lookup("key") shouldBe None
+    result.nextEnvironment.lookup("value") shouldBe None
+  }
+
+  it should "traverse loop conditions and restore catch scopes" in {
+    intercept[TypeError](check("while (1) 0"))
+    intercept[TypeError](check("do 0 while (1)"))
+    intercept[TypeError](check("for (; 1; ) 0"))
+
+    val pos = spnuts.ast.SourcePos("<test>", 1, 1)
+    val caughtRef = spnuts.ast.Ident("problem", pos)
+    val expression = spnuts.ast.TryExpr(
+      spnuts.ast.IntLit(1, "1", pos),
+      List(
+        spnuts.ast.CatchClause(
+          "problem",
+          Some(spnuts.ast.TypeExpr(List("String"), Nil)),
+          caughtRef,
+          pos
+        )
+      ),
+      None,
+      pos
+    )
+    val result = TypeChecker.check(expression, TypeEnvironment.empty)
+
+    result.table.get(caughtRef) shouldBe Some(StringType)
+    result.nextEnvironment.lookup("problem") shouldBe None
+  }
+
+  it should "traverse exception and control-flow payloads" in {
+    intercept[TypeError](check("""try { 1 } finally { true - "x" }"""))
+    intercept[TypeError](check("""throw true - "x""""))
+    intercept[TypeError](check("""return true - "x""""))
+    intercept[TypeError](check("""yield true - "x""""))
+    intercept[TypeError](check("""break true - "x""""))
+  }
