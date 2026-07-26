@@ -1584,6 +1584,13 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
     error.getMessage should include("<diagnostic>")
   }
 
+  it should "type-check code inside string eval" in {
+    val error = intercept[TypeError] {
+      runLib("""eval("x = 1; x = \"bad\"")""")
+    }
+    error.expected shouldBe Some(StaticType.LongType)
+  }
+
   it should "make staged types visible to same-context nested eval" in {
     val pkg = PnutsPackage("typing-nested-visible", Some(PnutsPackage.global))
     installNestedEval(pkg, "nestedBad", """x = "bad"""")

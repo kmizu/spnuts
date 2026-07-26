@@ -76,7 +76,7 @@ object TypeChecker:
             requireCompatible(
               binding.tpe,
               assignedType,
-              pos,
+              rhs.pos,
               "Assigned value has an incompatible type"
             )
           }

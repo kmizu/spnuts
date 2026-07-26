@@ -248,7 +248,7 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
     }
     error.expected shouldBe Some(LongType)
     error.actual shouldBe Some(StringType)
-    error.pos.line shouldBe 2
+    error.pos shouldBe SourcePos("<test>", 2, 5)
   }
 
   it should "infer val and var initializer types and enforce annotations" in {
