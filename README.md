@@ -4,6 +4,12 @@ A Scala 3 reimplementation of the [Pnuts](https://pnuts.dev.java.net/) scripting
 
 Builds for both **JVM** and **Scala Native** (cross-platform).
 
+## Download SPnuts 0.1.0
+
+Runnable JVM and Linux Native distributions, their checksums, and installation
+instructions are published on the [SPnuts release site](https://kmizu.github.io/spnuts/).
+GitHub Release assets contain the same files.
+
 ## Features
 
 - Hand-written PEG lexer/parser — no parser generator needed
@@ -25,7 +31,7 @@ sbt "replJVM/run"
 ```
 
 ```
-SPnuts 0.1-SNAPSHOT (Scala reimplementation)
+SPnuts 0.1.0 (Scala reimplementation)
 Thanks to Tomatsu-san for the original Pnuts.
 Type :quit to exit, :help for commands.
 pnuts> function fib(n) {
@@ -193,7 +199,7 @@ spnuts/
 
 - sbt 1.9+
 - Scala 3.3.1 (LTS)
-- JDK 11+ (JDK 17+ recommended)
+- JDK 17+
 - For Scala Native builds: LLVM/Clang toolchain + Scala Native 0.5.6
 
 ## Background

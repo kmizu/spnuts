@@ -4,6 +4,12 @@
 
 **JVM** と **Scala Native** の両方でビルド可能なクロスプラットフォーム実装です。
 
+## SPnuts 0.1.0 をダウンロード
+
+実行可能な JVM 版・Linux Native 版、チェックサム、導入手順は
+[SPnuts 配布ページ](https://kmizu.github.io/spnuts/) で公開しています。
+GitHub Release にも同一の配布物を掲載します。
+
 ## 特徴
 
 - 手書きPEGパーサー（パーサージェネレーター不使用）

@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (must match build.sbt)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set release version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$INPUT_VERSION"
+          fi
+          test -n "$version"
+          test "$(sed -nE 's/^ThisBuild \/ version[[:space:]]*:=[[:space:]]*"([^"]+)".*/\1/p' build.sbt)" = "$version"
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: temurin
+          cache: sbt
+
+      - uses: sbt/setup-sbt@v1
+
+      - name: Install Scala Native toolchain
+        run: sudo apt-get update && sudo apt-get install -y clang lld libunwind-dev
+
+      - name: Test source and release contracts
+        run: |
+          sbt "coreJVM/test" "replJVM/test"
+          bash scripts/test-release-version.sh "${{ steps.version.outputs.value }}"
+          bash scripts/test-package-release.sh "${{ steps.version.outputs.value }}"
+          bash scripts/test-build-pages.sh "${{ steps.version.outputs.value }}"
+
+      - name: Build release assets and Pages site
+        run: |
+          mkdir release pages
+          bash scripts/package-release.sh "${{ steps.version.outputs.value }}" release
+          bash scripts/build-pages.sh "${{ steps.version.outputs.value }}" release pages
+          (cd release && sha256sum -c SHA256SUMS)
+          test -f pages/index.html
+          cmp release/SHA256SUMS pages/downloads/SHA256SUMS
+
+      - uses: actions/configure-pages@v5
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: |
+            release
+            pages
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release upload "v$VERSION" release/* --clobber
+          else
+            gh release create "v$VERSION" release/* --target "$GITHUB_SHA" --title "SPnuts $VERSION" --generate-notes
+          fi
+
+  pages:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages
+
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

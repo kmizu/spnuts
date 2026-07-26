@@ -1,0 +1,33 @@
+:root {
+  color-scheme: light dark;
+  --paper: #fffdf8;
+  --ink: #21201d;
+  --muted: #6a655d;
+  --accent: #b4431f;
+  --line: #d9d1c2;
+  --code: #f1ece2;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 18px/1.6 Georgia, "Times New Roman", serif;
+}
+main { max-width: 780px; margin: 0 auto; padding: 5rem 1.5rem 6rem; }
+h1, h2, strong { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+h1 { font-size: clamp(2.6rem, 9vw, 5rem); line-height: 1; margin: 0 0 1.25rem; letter-spacing: -0.06em; }
+h2 { margin-top: 3.3rem; font-size: 1.35rem; }
+a { color: var(--accent); }
+.eyebrow { color: var(--accent); font: 700 .85rem/1.2 Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.lede { font-size: 1.35rem; max-width: 42rem; }
+.downloads { display: grid; gap: .75rem; }
+.download { display: grid; gap: .15rem; padding: 1rem 1.2rem; border: 1px solid var(--line); border-left: 5px solid var(--accent); border-radius: .25rem; color: inherit; text-decoration: none; }
+.download:hover { background: color-mix(in srgb, var(--accent) 8%, var(--paper)); }
+.download span { color: var(--muted); font: .9rem/1.35 Inter, ui-sans-serif, system-ui, sans-serif; }
+pre { overflow-x: auto; padding: 1rem 1.2rem; background: var(--code); border: 1px solid var(--line); border-radius: .25rem; font: .88rem/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+@media (prefers-color-scheme: dark) {
+  :root { --paper: #1b1916; --ink: #f3eee5; --muted: #c5bdaf; --accent: #ff9b72; --line: #49433a; --code: #28241f; }
+}

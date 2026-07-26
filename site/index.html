@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="SPnuts: a Scala 3 reimplementation of the Pnuts scripting language.">
+    <title>SPnuts {{VERSION}}</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Pnuts, continued</p>
+      <h1>SPnuts {{VERSION}}</h1>
+      <p class="lede">A Scala 3 reimplementation of the Pnuts scripting language, with runnable JVM and Linux Native distributions.</p>
+
+      <section aria-labelledby="downloads">
+        <h2 id="downloads">Downloads</h2>
+        <div class="downloads">
+          <a class="download" href="downloads/spnuts-{{VERSION}}-jvm.tar.gz">
+            <strong>JVM distribution</strong>
+            <span>Java 17+ · JVM / macOS / Linux / Windows</span>
+          </a>
+          <a class="download" href="downloads/spnuts-{{VERSION}}-linux-x86_64.tar.gz">
+            <strong>Linux Native distribution</strong>
+            <span>Linux x86_64 · no JVM startup</span>
+          </a>
+        </div>
+        <p>Verify either download with <a href="downloads/SHA256SUMS">SHA256SUMS</a>.</p>
+      </section>
+
+      <section aria-labelledby="quick-start">
+        <h2 id="quick-start">Quick start</h2>
+        <pre><code>tar -xzf spnuts-{{VERSION}}-jvm.tar.gz
+./spnuts-{{VERSION}}-jvm/bin/spnuts
+
+# Or run a script
+printf 'println("hello, SPnuts!")\n' &gt; hello.pnuts
+./spnuts-{{VERSION}}-jvm/bin/spnuts hello.pnuts</code></pre>
+        <p>The Linux Native archive has the same <code>bin/spnuts</code> interface. Java interoperation is available in the JVM distribution only.</p>
+      </section>
+
+      <section aria-labelledby="repl">
+        <h2 id="repl">Interactive use</h2>
+        <pre><code>pnuts&gt; function fib(n) {
+.....   if (n &lt;= 1) n
+.....   else fib(n - 1) + fib(n - 2)
+..... }
+pnuts&gt; fib(10)
+55</code></pre>
+        <p>The REPL supports multi-line input, <code>:load PATH</code> to evaluate a file in the current session, and <code>:bindings</code> to inspect values defined in that session.</p>
+      </section>
+
+      <section aria-labelledby="about">
+        <h2 id="about">Why this release</h2>
+        <p>Pnuts was created at Sun Microsystems by Toyokazu Tomatsu. After receiving permission to continue the project, SPnuts is the first Scala-based implementation released to carry that work forward.</p>
+        <p>Source, issue tracking, and build instructions live at <a href="https://github.com/kmizu/spnuts">github.com/kmizu/spnuts</a>. SPnuts is distributed under the <a href="LICENSE">Sun Public License 1.0</a> used by Pnuts.</p>
+      </section>
+    </main>
+  </body>
+</html>
