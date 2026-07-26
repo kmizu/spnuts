@@ -1,6 +1,7 @@
 package spnuts.typing
 
 import org.scalatest.flatspec.AnyFlatSpec
+import org.scalatest.Inspectors.forEvery
 import org.scalatest.matchers.should.Matchers
 import spnuts.ast.*
 import spnuts.parser.Parser
@@ -21,6 +22,221 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
   "TypeChecker" should "infer and persist a legacy assignment type" in {
     val result = check("x = 1")
     result.nextEnvironment.lookup("x").map(_.tpe) shouldBe Some(LongType)
+  }
+
+  it should "keep same-chunk package bindings independent" in {
+    val result = check(
+      """package typing_checker_package_p
+        |x = 1
+        |package typing_checker_package_q
+        |x = "ok"
+        |x""".stripMargin
+    )
+
+    result.resultType shouldBe StringType
+  }
+
+  it should "preserve a package binding when switching away and back" in {
+    val result = check(
+      """package typing_checker_return_p
+        |x = 1
+        |package typing_checker_return_q
+        |x = "ok"
+        |package typing_checker_return_p
+        |x = 2
+        |x""".stripMargin
+    )
+
+    result.resultType shouldBe LongType
+  }
+
+  it should "let a child package shadow an inherited binding" in {
+    val result = check(
+      """package typing_checker_parent
+        |x = 1
+        |package typing_checker_parent.child
+        |x = "child"
+        |x""".stripMargin
+    )
+
+    result.resultType shouldBe StringType
+  }
+
+  it should "isolate dynamic package declarations from known namespaces" in {
+    val result = check(
+      """package typing_checker_known
+        |x = 1
+        |package ("typing_checker_dynamic")
+        |x = "dynamic"
+        |package typing_checker_known
+        |x = 2
+        |x""".stripMargin
+    )
+
+    result.resultType shouldBe LongType
+  }
+
+  it should "restore the caller package after traversing deferred bodies" in {
+    val pos = SourcePos("<package-body>", 1, 1)
+    val packageChange =
+      PackageExpr(List("typing_checker_deferred_child"), None, pos)
+    val method =
+      MethodDef(
+        None,
+        "method",
+        Nil,
+        ExprList(List(packageChange, IntLit(0, "0", pos)), pos)
+      )
+    val deferredBodies = List[Expr](
+      Parser.parse(
+        """function f(): Long {
+          |  package typing_checker_deferred_child
+          |  0
+          |}
+          |f()""".stripMargin,
+        "<package-function>"
+      ),
+      ClassDef(
+        "DeferredClass",
+        None,
+        Nil,
+        ClassDefBody(Nil, List(method)),
+        pos
+      ),
+      NewExpr(
+        List("DeferredAnonymous"),
+        Nil,
+        Nil,
+        Some(ClassDefBody(Nil, List(method))),
+        pos
+      )
+    )
+
+    forEvery(deferredBodies) { deferred =>
+      val expression =
+        ExprList(
+          List(
+            PackageExpr(List("typing_checker_deferred_outer"), None, pos),
+            deferred,
+            Assignment(
+              AssignOp.Assign,
+              Ident("outerValue", pos),
+              IntLit(1, "1", pos),
+              pos
+            )
+          ),
+          pos
+        )
+      val result = TypeChecker.check(expression, TypeEnvironment.empty)
+
+      result.nextEnvironment.activePackage shouldBe
+        Some("typing_checker_deferred_outer")
+      result.nextEnvironment
+        .inPackage("typing_checker_deferred_outer")
+        .lookup("outerValue")
+        .map(_.tpe) shouldBe Some(LongType)
+      result.nextEnvironment
+        .inPackage("typing_checker_deferred_child")
+        .lookup("outerValue") shouldBe None
+    }
+  }
+
+  it should "merge path-dependent package flow conservatively" in {
+    val pathDependent = List(
+      """package typing_checker_flow_start
+        |if (condition) {
+        |  package typing_checker_flow_if
+        |  1
+        |} else 0""".stripMargin,
+      """package typing_checker_flow_start
+        |while (condition) {
+        |  package typing_checker_flow_while
+        |  1
+        |}""".stripMargin,
+      """package typing_checker_flow_start
+        |try {
+        |  package typing_checker_flow_try
+        |  1
+        |} catch (problem) {
+        |  0
+        |}""".stripMargin
+    )
+
+    forEvery(pathDependent) { code =>
+      check(code).nextEnvironment.activePackage shouldBe None
+    }
+
+    check(
+      """package typing_checker_same_start
+        |if (condition) {
+        |  package typing_checker_same_result
+        |  1
+        |} else {
+        |  package typing_checker_same_result
+        |  0
+        |}""".stripMargin
+    ).nextEnvironment.activePackage shouldBe Some("typing_checker_same_result")
+
+    check(
+      """package typing_checker_sequential_p
+        |x = 1
+        |package typing_checker_sequential_q
+        |x = "ok"""".stripMargin
+    ).nextEnvironment.activePackage shouldBe Some("typing_checker_sequential_q")
+  }
+
+  it should "keep unreachable do-while package effects from becoming definite" in {
+    val abruptExits = List("break", "continue")
+
+    forEvery(abruptExits.zipWithIndex) { case (abruptExit, index) =>
+      val parent = s"typing_checker_do_while_parent_$index"
+      val unreachable = s"typing_checker_do_while_unreachable_$index"
+      val result = check(
+        s"""package $parent
+           |x = 0
+           |do {
+           |  $abruptExit
+           |  package $unreachable
+           |} while (false)
+           |x = 1""".stripMargin
+      )
+
+      result.nextEnvironment.activePackage shouldBe None
+      result.nextEnvironment.packageScopes
+        .getOrElse(parent, Map.empty)
+        .get("x") shouldBe Some(TypeBinding(LongType, false))
+      result.nextEnvironment.packageScopes
+        .getOrElse(unreachable, Map.empty)
+        .get("x") shouldBe None
+      intercept[TypeError] {
+        check(
+          s"""package $parent
+             |x = "bad"""".stripMargin,
+          result.nextEnvironment
+        )
+      }
+    }
+  }
+
+  it should "treat unqualified values in a dynamic package as unknown" in {
+    val environment =
+      TypeEnvironment.empty.declare(
+        "typingCheckerDynamicFlag",
+        TypeBinding(LongType, false)
+      )
+    val result = check(
+      """package ("typing_checker_dynamic_shadow")
+        |typingCheckerDynamicFlag = true
+        |if (typingCheckerDynamicFlag) 1 else 0
+        |package typing_checker_dynamic_after
+        |afterValue = 1""".stripMargin,
+      environment
+    )
+
+    result.nextEnvironment.activePackage shouldBe
+      Some("typing_checker_dynamic_after")
+    result.nextEnvironment.lookup("afterValue").map(_.tpe) shouldBe
+      Some(LongType)
   }
 
   it should "reject an incompatible later assignment before execution" in {
@@ -60,6 +276,103 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
       TypeEnvironment.empty.declare("answer", TypeBinding(LongType, false))
 
     check("::answer", environment).resultType shouldBe LongType
+  }
+
+  it should "resolve a global reference independently of the active package" in {
+    val environment =
+      TypeEnvironment.empty
+        .declare("answer", TypeBinding(LongType, false))
+        .inPackage("local")
+        .declare("answer", TypeBinding(StringType, false))
+
+    check("::answer", environment).resultType shouldBe LongType
+  }
+
+  it should "track direct compound and unary global mutations" in {
+    val declared = check(
+      """package typing_checker_global_local
+        |::typingCheckerGlobalMutation = 1""".stripMargin
+    )
+    declared.nextEnvironment.lookupGlobal("typingCheckerGlobalMutation") shouldBe
+      Some(TypeBinding(LongType, false))
+
+    val compounded =
+      check("::typingCheckerGlobalMutation += 2", declared.nextEnvironment)
+    compounded.resultType shouldBe LongType
+    compounded.nextEnvironment.lookupGlobal("typingCheckerGlobalMutation") shouldBe
+      Some(TypeBinding(LongType, false))
+
+    val incremented =
+      check("::typingCheckerGlobalMutation++", compounded.nextEnvironment)
+    incremented.resultType shouldBe LongType
+    incremented.nextEnvironment.lookupGlobal("typingCheckerGlobalMutation") shouldBe
+      Some(TypeBinding(LongType, false))
+
+    intercept[TypeError] {
+      check(
+        """::typingCheckerGlobalMutation = "bad"""",
+        incremented.nextEnvironment
+      )
+    }
+  }
+
+  it should "record an exact child binding for inherited increments and decrements" in {
+    val mutations = List("x++" -> LongType, "--x" -> LongType)
+
+    forEvery(mutations.zipWithIndex) { case ((mutation, expectedType), index) =>
+      val parent = s"typing_checker_unary_parent_$index"
+      val child = s"$parent.child"
+      val result = check(
+        s"""package $parent
+           |x = 10
+           |package $child
+           |$mutation""".stripMargin
+      )
+
+      result.resultType shouldBe expectedType
+      result.nextEnvironment
+        .inPackage(parent)
+        .lookup("x")
+        .map(_.tpe) shouldBe Some(LongType)
+      result.nextEnvironment.packageScopes
+        .getOrElse(child, Map.empty)
+        .get("x") shouldBe Some(TypeBinding(LongType, false))
+      intercept[TypeError] {
+        check("""x = "bad"""", result.nextEnvironment)
+      }
+    }
+  }
+
+  it should "record the compound result type in an exact child binding" in {
+    val cases = List(
+      ("1.5", DoubleType, "x = 3.5", """x = "bad""""),
+      (""""base"""", StringType, """x = "ok"""", "x = 2")
+    )
+
+    forEvery(cases.zipWithIndex) {
+      case ((parentValue, expectedType, compatible, incompatible), index) =>
+        val parent = s"typing_checker_compound_parent_$index"
+        val child = s"$parent.child"
+        val result = check(
+          s"""package $parent
+             |x = $parentValue
+             |package $child
+             |x += 1""".stripMargin
+        )
+
+        result.resultType shouldBe expectedType
+        result.nextEnvironment
+          .inPackage(parent)
+          .lookup("x")
+          .map(_.tpe) shouldBe Some(expectedType)
+        result.nextEnvironment.packageScopes
+          .getOrElse(child, Map.empty)
+          .get("x") shouldBe Some(TypeBinding(expectedType, false))
+        val compatibleResult = check(compatible, result.nextEnvironment)
+        intercept[TypeError] {
+          check(incompatible, compatibleResult.nextEnvironment)
+        }
+    }
   }
 
   it should "reject an incompatible first target in a scalar multi-assignment" in {
@@ -187,6 +500,10 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
     TypeChecker.check(slice, environment).resultType shouldBe ArrayType(LongType)
   }
 
+  it should "preserve a list literal element type across slicing" in {
+    check("[10, 20, 30, 40, 50][1..3]").resultType shouldBe ListType(LongType)
+  }
+
   it should "validate collection indices and range bounds when their types are known" in {
     intercept[TypeError](check("""[1]["x"]"""))
     intercept[TypeError](check("""{"x" => 1}[1]"""))
@@ -251,29 +568,23 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
     }
   }
 
-  it should "reject collection receivers unsupported by runtime range access" in {
-    val receiverTypes = List(
-      ListType(LongType),
-      MapType(StringType, LongType)
-    )
+  it should "reject map receivers unsupported by runtime range access" in {
+    val receiverType = MapType(StringType, LongType)
     val pos = spnuts.ast.SourcePos("<test>", 1, 1)
+    val receiver = spnuts.ast.Ident("value", pos)
+    val expression = spnuts.ast.RangeAccess(
+      receiver,
+      spnuts.ast.IntLit(0, "0", pos),
+      None,
+      pos
+    )
+    val environment =
+      TypeEnvironment.empty.declare("value", TypeBinding(receiverType, false))
+    val error =
+      intercept[TypeError](TypeChecker.check(expression, environment))
 
-    receiverTypes.foreach { receiverType =>
-      val receiver = spnuts.ast.Ident("value", pos)
-      val expression = spnuts.ast.RangeAccess(
-        receiver,
-        spnuts.ast.IntLit(0, "0", pos),
-        None,
-        pos
-      )
-      val environment =
-        TypeEnvironment.empty.declare("value", TypeBinding(receiverType, false))
-      val error =
-        intercept[TypeError](TypeChecker.check(expression, environment))
-
-      error.pos shouldBe receiver.pos
-      error.actual shouldBe Some(receiverType)
-    }
+    error.pos shouldBe receiver.pos
+    error.actual shouldBe Some(receiverType)
   }
 
   it should "keep dynamic index and range receivers conservative" in {
@@ -386,6 +697,72 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
     snippets.foreach { code =>
       val error = intercept[TypeError] {
         check(code)
+      }
+      error.msg should include("not allowed")
+    }
+  }
+
+  it should "reject forbidden lowercase types at every fixed type-use site" in {
+    val pos = SourcePos("<fixed-type>", 1, 1)
+    val safe = IntLit(1, "1", pos)
+    val invalidSites = List[Expr](
+      RecordDef("BadRecord", List(RecordField(Some("int"), "value")), pos),
+      NewExpr(List("int"), Nil, List(safe), None, pos),
+      ClassRef(List("boolean"), pos),
+      BeanDef(List("long"), Nil, pos),
+      ClassDef(
+        "BadSuperclass",
+        Some(List("short")),
+        Nil,
+        ClassDefBody(Nil, Nil),
+        pos
+      ),
+      ClassDef(
+        "BadInterface",
+        None,
+        List(List("byte")),
+        ClassDefBody(Nil, Nil),
+        pos
+      ),
+      ClassDef(
+        "BadField",
+        None,
+        Nil,
+        ClassDefBody(List(FieldDef(Some(List("float")), "value", None)), Nil),
+        pos
+      ),
+      ClassDef(
+        "BadMethodReturn",
+        None,
+        Nil,
+        ClassDefBody(
+          Nil,
+          List(MethodDef(Some(List("double")), "value", Nil, safe))
+        ),
+        pos
+      ),
+      ClassDef(
+        "BadMethodParam",
+        None,
+        Nil,
+        ClassDefBody(
+          Nil,
+          List(
+            MethodDef(
+              None,
+              "value",
+              List(Some(List("char")) -> "input"),
+              safe
+            )
+          )
+        ),
+        pos
+      )
+    )
+
+    forEvery(invalidSites) { expression =>
+      val error = intercept[TypeError] {
+        TypeChecker.check(expression, TypeEnvironment.empty)
       }
       error.msg should include("not allowed")
     }

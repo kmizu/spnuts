@@ -18,7 +18,9 @@ object Interpreter:
    * Returns the result value (null for void statements).
    */
   def eval(expr: Expr, ctx: Context): Any =
-    val checked = TypeChecker.check(expr, ctx.typingSession.snapshot)
+    val environment =
+      ctx.typingSession.snapshot.inPackage(ctx.currentPackage.name)
+    val checked = TypeChecker.check(expr, environment)
     ctx.typingSession.begin(checked.nextEnvironment)
     try
       // Wire interpreter callback once so built-in native functions can call user functions
@@ -613,6 +615,15 @@ object Interpreter:
         // arr[a..b] is inclusive on both ends (like Ruby)
         val end = to.map(v => Operators.toLong(v).toInt + 1).getOrElse(arr.length)
         arr.slice(start, end)
+      case list: java.util.List[?] =>
+        val end =
+          to.map(v => Operators.toLong(v).toInt + 1).getOrElse(list.size)
+        val boundedStart = start.max(0).min(list.size)
+        val boundedEnd = end.max(boundedStart).min(list.size)
+        val result = new java.util.ArrayList[Any](boundedEnd - boundedStart)
+        for index <- boundedStart until boundedEnd do
+          result.add(list.get(index))
+        result
       case s: String =>
         val end = to.map(v => Operators.toLong(v).toInt + 1).getOrElse(s.length)
         s.substring(start, end min s.length)

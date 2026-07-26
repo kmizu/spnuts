@@ -13,6 +13,50 @@ class TypeEnvironmentSpec extends AnyFlatSpec with Matchers:
     inner.popScope.lookup("x") shouldBe Some(TypeBinding(LongType, false))
   }
 
+  it should "keep sibling package bindings independent and follow parent packages" in {
+    val packages =
+      TypeEnvironment.empty
+        .inPackage("parent")
+        .declare("inherited", TypeBinding(LongType, true))
+        .declare("value", TypeBinding(LongType, false))
+        .inPackage("sibling")
+        .declare("value", TypeBinding(StringType, false))
+
+    packages.lookup("value") shouldBe Some(TypeBinding(StringType, false))
+    packages.inPackage("parent").lookup("value") shouldBe
+      Some(TypeBinding(LongType, false))
+    packages.inPackage("parent.child").lookup("inherited") shouldBe
+      Some(TypeBinding(LongType, true))
+  }
+
+  it should "distinguish inherited reads from top-level assignment targets" in {
+    val child =
+      TypeEnvironment.empty
+        .inPackage("parent")
+        .declare("value", TypeBinding(LongType, false))
+        .inPackage("parent.child")
+
+    child.lookup("value") shouldBe Some(TypeBinding(LongType, false))
+    child.lookupForAssignment("value") shouldBe None
+  }
+
+  it should "keep pushed lexical scopes local across package switches" in {
+    val scoped =
+      TypeEnvironment.empty
+        .inPackage("first")
+        .declare("packageValue", TypeBinding(LongType, false))
+        .pushScope
+        .declare("localValue", TypeBinding(StringType, true))
+        .inPackage("second")
+
+    scoped.lookup("localValue") shouldBe Some(TypeBinding(StringType, true))
+    scoped.declare("secondLocal", TypeBinding(BooleanType, false))
+      .popScope
+      .lookup("secondLocal") shouldBe None
+    scoped.popScope.inPackage("first").lookup("packageValue") shouldBe
+      Some(TypeBinding(LongType, false))
+  }
+
   "TypingSession" should "change only after an explicit commit" in {
     val session = TypingSession()
     val next = session.snapshot.declare("x", TypeBinding(LongType, false))

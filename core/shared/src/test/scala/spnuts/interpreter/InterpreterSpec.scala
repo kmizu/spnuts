@@ -1,6 +1,7 @@
 package spnuts.interpreter
 
 import org.scalatest.flatspec.AnyFlatSpec
+import org.scalatest.Inspectors.forEvery
 import org.scalatest.matchers.should.Matchers
 import spnuts.parser.Parser
 import spnuts.runtime.{Context, NativeFunc, PnutsGroup, PnutsPackage}
@@ -385,11 +386,21 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
     runLib("""replaceAll("hello world", "o", "0")""") shouldBe "hell0 w0rld"
   }
 
-  // ── Array slice with RangeAccess ─────────────────────────────────────────────
+  // ── List literal slice with RangeAccess ──────────────────────────────────────
 
-  it should "slice array with range access" in {
-    val r = runLib("a = range(10, 50, 10); a[1..3]")
+  it should "slice a list literal with range access" in {
+    val r = run("[10, 20, 30, 40, 50][1..3]")
     r.asInstanceOf[Array[?]].toList shouldBe List(20L, 30L, 40L)
+  }
+
+  it should "slice a java list with inclusive range access" in {
+    import scala.jdk.CollectionConverters.*
+
+    val r = runLib("toList([10, 20, 30, 40, 50])[1..3]")
+
+    r.isInstanceOf[java.util.ArrayList[?]] shouldBe true
+    r.asInstanceOf[java.util.List[Any]].asScala.toList shouldBe
+      List(20L, 30L, 40L)
   }
 
   // ── Pre/post increment / decrement ───────────────────────────────────────────
@@ -749,7 +760,7 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
 
   it should "support records with type annotations" in {
     run("""
-      record Person(String name, int age)
+      record Person(String name, Int age)
       p = Person("Carol", 40)
       p.age
     """) shouldBe 40L
@@ -1634,5 +1645,349 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
         Interpreter.eval(Parser.parse(code, "<invalid-type>"), ctx)
       }
       pkg.lookup("sideEffect") shouldBe None
+    }
+  }
+
+  it should "reject lowercase fixed type uses before side effects" in {
+    val parsedSites = List(
+      "sideEffect = 1; record BadRecord(int value)",
+      "sideEffect = 1; new int(1)",
+      "sideEffect = 1; class boolean"
+    ).map(Parser.parse(_, "<fixed-type>"))
+    val pos = spnuts.ast.SourcePos("<fixed-type>", 1, 1)
+    val safe = spnuts.ast.IntLit(1, "1", pos)
+    val directSites = List[spnuts.ast.Expr](
+      spnuts.ast.BeanDef(List("long"), Nil, pos),
+      spnuts.ast.ClassDef(
+        "BadSuperclass",
+        Some(List("short")),
+        Nil,
+        spnuts.ast.ClassDefBody(Nil, Nil),
+        pos
+      ),
+      spnuts.ast.ClassDef(
+        "BadInterface",
+        None,
+        List(List("byte")),
+        spnuts.ast.ClassDefBody(Nil, Nil),
+        pos
+      ),
+      spnuts.ast.ClassDef(
+        "BadField",
+        None,
+        Nil,
+        spnuts.ast.ClassDefBody(
+          List(spnuts.ast.FieldDef(Some(List("float")), "value", None)),
+          Nil
+        ),
+        pos
+      ),
+      spnuts.ast.ClassDef(
+        "BadMethodReturn",
+        None,
+        Nil,
+        spnuts.ast.ClassDefBody(
+          Nil,
+          List(spnuts.ast.MethodDef(Some(List("double")), "value", Nil, safe))
+        ),
+        pos
+      ),
+      spnuts.ast.ClassDef(
+        "BadMethodParam",
+        None,
+        Nil,
+        spnuts.ast.ClassDefBody(
+          Nil,
+          List(
+            spnuts.ast.MethodDef(
+              None,
+              "value",
+              List(Some(List("char")) -> "input"),
+              safe
+            )
+          )
+        ),
+        pos
+      )
+    ).map { invalid =>
+      spnuts.ast.ExprList(
+        List(
+          spnuts.ast.Assignment(
+            spnuts.ast.AssignOp.Assign,
+            spnuts.ast.Ident("sideEffect", pos),
+            safe,
+            pos
+          ),
+          invalid
+        ),
+        pos
+      )
+    }
+
+    forEvery((parsedSites ++ directSites).zipWithIndex) { (expression, index) =>
+      val pkg = PnutsPackage(s"typing-fixed-type-$index", Some(PnutsPackage.global))
+      intercept[TypeError] {
+        Interpreter.eval(expression, Context(currentPackage = pkg))
+      }
+      pkg.lookup("sideEffect") shouldBe None
+    }
+  }
+
+  it should "keep runtime packages independently typed within one chunk" in {
+    val ctx = Context()
+    val result = Interpreter.eval(
+      Parser.parse(
+        """package typing_interpreter_chunk_p
+          |x = 1
+          |package typing_interpreter_chunk_q
+          |x = "ok"
+          |x""".stripMargin,
+        "<package-chunk>"
+      ),
+      ctx
+    )
+
+    result shouldBe "ok"
+  }
+
+  it should "preserve package types when a chunk switches away and back" in {
+    val ctx = Context()
+    val result = Interpreter.eval(
+      Parser.parse(
+        """package typing_interpreter_return_p
+          |x = 1
+          |package typing_interpreter_return_q
+          |x = "ok"
+          |package typing_interpreter_return_p
+          |x""".stripMargin,
+        "<package-return>"
+      ),
+      ctx
+    )
+
+    result shouldBe 1L
+  }
+
+  it should "let a child package shadow an inherited runtime binding" in {
+    val result = Interpreter.eval(
+      Parser.parse(
+        """package typing_interpreter_parent
+          |x = 1
+          |package typing_interpreter_parent.child
+          |x = "child"
+          |x""".stripMargin,
+        "<package-shadow>"
+      ),
+      Context()
+    )
+
+    result shouldBe "child"
+  }
+
+  it should "synchronize typing with the current runtime package between eval calls" in {
+    val packageP =
+      PnutsPackage("typing-interpreter-evals-p", Some(PnutsPackage.global))
+    val packageQ =
+      PnutsPackage("typing-interpreter-evals-q", Some(PnutsPackage.global))
+    val ctx = Context(currentPackage = packageP)
+
+    Interpreter.eval(Parser.parse("x = 1", "<package-p>"), ctx)
+    ctx.currentPackage = packageQ
+    Interpreter.eval(Parser.parse("""x = "ok"""", "<package-q>"), ctx)
+    ctx.currentPackage = packageP
+
+    intercept[TypeError] {
+      Interpreter.eval(Parser.parse("""x = "bad"""", "<package-p-again>"), ctx)
+    }
+    ctx.getValue("x") shouldBe 1L
+  }
+
+  it should "persist a successful package expression into the next eval" in {
+    val ctx = Context()
+
+    Interpreter.eval(
+      Parser.parse("package typing_interpreter_persisted; x = 1", "<package-first>"),
+      ctx
+    )
+    Interpreter.eval(Parser.parse("x = 2", "<package-second>"), ctx)
+
+    intercept[TypeError] {
+      Interpreter.eval(Parser.parse("""x = "bad"""", "<package-third>"), ctx)
+    }
+    ctx.getValue("x") shouldBe 2L
+  }
+
+  it should "keep a function body package change out of the caller namespace" in {
+    val ctx = Context()
+
+    Interpreter.eval(
+      Parser.parse(
+        """package typing_interpreter_function_outer
+          |function f(): Long {
+          |  package typing_interpreter_function_child
+          |  0
+          |}
+          |f()
+          |x = 1""".stripMargin,
+        "<package-function>"
+      ),
+      ctx
+    )
+
+    intercept[TypeError] {
+      Interpreter.eval(Parser.parse("""x = "bad"""", "<package-after-call>"), ctx)
+    }
+    ctx.getValue("x") shouldBe 1L
+  }
+
+  it should "allow a dynamic package to shadow a known global value" in {
+    val ctx = Context()
+
+    Interpreter.eval(
+      Parser.parse("typingInterpreterDynamicFlag = 1", "<dynamic-global>"),
+      ctx
+    )
+    val result = Interpreter.eval(
+      Parser.parse(
+        """package ("typing_interpreter_dynamic_shadow")
+          |typingInterpreterDynamicFlag = true
+          |if (typingInterpreterDynamicFlag) 1 else 0
+          |package typing_interpreter_dynamic_after
+          |afterValue = 1
+          |afterValue""".stripMargin,
+        "<dynamic-shadow>"
+      ),
+      ctx
+    )
+
+    result shouldBe 1L
+  }
+
+  it should "persist global assignment types across mutation forms" in {
+    val ctx = Context()
+    val name = "typingInterpreterGlobalMutation"
+
+    Interpreter.eval(Parser.parse(s"::$name = 1", "<global-declare>"), ctx)
+    Interpreter.eval(Parser.parse(s"::$name += 2", "<global-compound>"), ctx)
+    Interpreter.eval(Parser.parse(s"::$name++", "<global-unary>"), ctx)
+
+    intercept[TypeError] {
+      Interpreter.eval(Parser.parse(s"""::$name = "bad"""", "<global-bad>"), ctx)
+    }
+    PnutsPackage.global.lookup(name).map(_.value) shouldBe Some(4L)
+  }
+
+  it should "persist exact child types created by inherited unary mutations" in {
+    val mutations = List("x++" -> 11L, "--x" -> 9L)
+
+    mutations.zipWithIndex.foreach { case ((mutation, expected), index) =>
+      val parentName = s"typing_interpreter_unary_parent_$index"
+      val childName = s"$parentName.child"
+      val ctx = Context()
+
+      Interpreter.eval(
+        Parser.parse(
+          s"""package $parentName
+             |x = 10
+             |package $childName
+             |$mutation""".stripMargin,
+          "<package-unary>"
+        ),
+        ctx
+      )
+
+      val parent = PnutsPackage.global.child(parentName)
+      val child = parent.child("child")
+      parent.allBindings.toMap.apply("x").value shouldBe 10L
+      child.allBindings.toMap.apply("x").value shouldBe expected
+      intercept[TypeError] {
+        Interpreter.eval(Parser.parse("""x = "bad"""", "<package-unary-bad>"), ctx)
+      }
+      child.allBindings.toMap.apply("x").value shouldBe expected
+    }
+  }
+
+  it should "persist compound result types in exact child bindings" in {
+    val cases = List(
+      ("1.5", 1.5, 2.5, "x = 3.5", 3.5, """x = "bad""""),
+      (""""base"""", "base", "base1", """x = "ok"""", "ok", "x = 2")
+    )
+
+    cases.zipWithIndex.foreach {
+      case (
+            (
+              parentSource,
+              parentValue,
+              compoundValue,
+              compatible,
+              compatibleValue,
+              incompatible
+            ),
+            index
+          ) =>
+        val parentName = s"typing_interpreter_compound_parent_$index"
+        val childName = s"$parentName.child"
+        val ctx = Context()
+
+        Interpreter.eval(
+          Parser.parse(
+            s"""package $parentName
+               |x = $parentSource
+               |package $childName
+               |x += 1""".stripMargin,
+            "<package-compound>"
+          ),
+          ctx
+        )
+
+        val parent = PnutsPackage.global.child(parentName)
+        val child = parent.child("child")
+        parent.allBindings.toMap.apply("x").value shouldBe parentValue
+        child.allBindings.toMap.apply("x").value shouldBe compoundValue
+        Interpreter.eval(Parser.parse(compatible, "<package-compound-compatible>"), ctx)
+        child.allBindings.toMap.apply("x").value shouldBe compatibleValue
+        intercept[TypeError] {
+          Interpreter.eval(
+            Parser.parse(incompatible, "<package-compound-incompatible>"),
+            ctx
+          )
+        }
+        child.allBindings.toMap.apply("x").value shouldBe compatibleValue
+    }
+  }
+
+  it should "ignore unreachable do-while package effects" in {
+    val abruptExits = List("break", "continue")
+
+    abruptExits.zipWithIndex.foreach { case (abruptExit, index) =>
+      val parentName = s"typing_interpreter_do_while_parent_$index"
+      val unreachableName = s"typing_interpreter_do_while_unreachable_$index"
+      val ctx = Context()
+
+      Interpreter.eval(
+        Parser.parse(
+          s"""package $parentName
+             |x = 0
+             |do {
+             |  $abruptExit
+             |  package $unreachableName
+             |} while (false)
+             |x = 1""".stripMargin,
+          "<package-do-while>"
+        ),
+        ctx
+      )
+
+      val parent = PnutsPackage.global.child(parentName)
+      val unreachable = PnutsPackage.global.child(unreachableName)
+      parent.allBindings.toMap.apply("x").value shouldBe 1L
+      unreachable.allBindings.toMap.get("x") shouldBe None
+      ctx.typingSession.snapshot.packageScopes
+        .getOrElse(unreachableName, Map.empty)
+        .get("x") shouldBe None
+      intercept[TypeError] {
+        Interpreter.eval(Parser.parse("""x = "bad"""", "<package-do-while-bad>"), ctx)
+      }
+      parent.allBindings.toMap.apply("x").value shouldBe 1L
     }
   }

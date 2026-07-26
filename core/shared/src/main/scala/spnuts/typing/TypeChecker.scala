@@ -39,7 +39,7 @@ object TypeChecker:
         case Ident(name, _) =>
           typed(expr, environment.lookup(name).map(_.tpe).getOrElse(AnyType))
         case GlobalRef(name, _) =>
-          typed(expr, environment.lookup(name).map(_.tpe).getOrElse(AnyType))
+          typed(expr, environment.lookupGlobal(name).map(_.tpe).getOrElse(AnyType))
 
         case Block(exprs, _) => typed(expr, withScope(inferSequence(exprs)))
         case ExprList(exprs, _) => typed(expr, inferSequence(exprs))
@@ -57,7 +57,8 @@ object TypeChecker:
         case Assignment(op, lhs, rhs, pos) =>
           val rhsType = infer(rhs, None)
           val existing = lhs match
-            case Ident(name, _) => environment.lookup(name)
+            case Ident(name, _) => environment.lookupForAssignment(name)
+            case GlobalRef(name, _) => environment.lookupGlobal(name)
             case _ => None
 
           existing.foreach { binding =>
@@ -82,10 +83,19 @@ object TypeChecker:
 
           lhs match
             case ident @ Ident(name, _) =>
-              val bindingType = existing.map(_.tpe).getOrElse(rhsType)
+              val bindingType = existing.map(_.tpe).getOrElse(assignedType)
               if existing.isEmpty then
                 environment = environment.declare(name, TypeBinding(bindingType, false))
               typed(ident, bindingType)
+            case global @ GlobalRef(name, _) =>
+              val bindingType = existing.map(_.tpe).getOrElse(assignedType)
+              if existing.isEmpty then
+                environment =
+                  environment.declareGlobal(
+                    name,
+                    TypeBinding(bindingType, false)
+                  )
+              typed(global, bindingType)
             case other =>
               if op == AssignOp.Assign then infer(other, None)
 
@@ -99,7 +109,7 @@ object TypeChecker:
             case scalarType =>
               scalarType :: List.fill(targets.size - 1)(NullType)
           targets.zip(targetTypes).foreach { (target, targetType) =>
-            environment.lookup(target.name) match
+            environment.lookupForAssignment(target.name) match
               case Some(binding) if binding.immutable =>
                 throw TypeError(s"Cannot assign to immutable binding", pos)
               case Some(binding) =>
@@ -118,7 +128,10 @@ object TypeChecker:
 
         case BinaryExpr(op, lhs, rhs, pos) =>
           val leftType = infer(lhs, None)
+          val leftPackage = environment.activePackage
           val rightType = infer(rhs, None)
+          if op == BinOp.LogAnd || op == BinOp.LogOr then
+            mergeActivePackages(List(leftPackage, environment.activePackage))
           typed(expr, binaryResult(op, leftType, rightType, pos))
 
         case UnaryExpr(op, operand, pos) =>
@@ -128,16 +141,39 @@ object TypeChecker:
             case UnaryOp.PreIncr | UnaryOp.PreDecr | UnaryOp.PostIncr | UnaryOp.PostDecr =>
               operand match
                 case Ident(name, _) =>
-                  environment.lookup(name).foreach { binding =>
-                    if binding.immutable then
-                      throw TypeError(s"Cannot assign to immutable binding", pos)
-                    requireCompatible(
-                      binding.tpe,
-                      resultType,
-                      pos,
-                      "Increment result has an incompatible type"
-                    )
-                  }
+                  environment.lookupForAssignment(name) match
+                    case Some(binding) =>
+                      if binding.immutable then
+                        throw TypeError(s"Cannot assign to immutable binding", pos)
+                      requireCompatible(
+                        binding.tpe,
+                        resultType,
+                        pos,
+                        "Increment result has an incompatible type"
+                      )
+                    case None =>
+                      environment =
+                        environment.declare(
+                          name,
+                          TypeBinding(resultType, false)
+                        )
+                case GlobalRef(name, _) =>
+                  environment.lookupGlobal(name) match
+                    case Some(binding) =>
+                      if binding.immutable then
+                        throw TypeError(s"Cannot assign to immutable binding", pos)
+                      requireCompatible(
+                        binding.tpe,
+                        resultType,
+                        pos,
+                        "Increment result has an incompatible type"
+                      )
+                    case None =>
+                      environment =
+                        environment.declareGlobal(
+                          name,
+                          TypeBinding(resultType, false)
+                        )
                 case _ => ()
             case _ => ()
           typed(expr, resultType)
@@ -210,6 +246,7 @@ object TypeChecker:
             requireNumeric(infer(bound, None), pos, "Range end must be numeric")
           )
           val resultType = objectType match
+            case listType @ ListType(_) => listType
             case arrayType @ ArrayType(_) => arrayType
             case StringType => StringType
             case other =>
@@ -223,43 +260,77 @@ object TypeChecker:
 
         case TernaryExpr(cond, thenExpr, elseExpr, _) =>
           requireBoolean(infer(cond, None), cond.pos, "Ternary condition must be boolean")
-          val thenType = infer(thenExpr, None)
-          val elseType = infer(elseExpr, None)
+          val branchPackage = environment.activePackage
+          val (thenType, thenPackage) =
+            inferFromPackage(branchPackage)(infer(thenExpr, None))
+          val (elseType, elsePackage) =
+            inferFromPackage(branchPackage)(infer(elseExpr, None))
+          mergeActivePackages(List(thenPackage, elsePackage))
           typed(expr, TypeRules.join(thenType, elseType))
 
         case IfExpr(cond, thenBranch, elseIfs, elseBranch, _) =>
           requireBoolean(infer(cond, None), cond.pos, "If condition must be boolean")
-          val branchTypes =
-            infer(thenBranch, None) ::
-              elseIfs.map { (elseIfCond, branch) =>
-                requireBoolean(
-                  infer(elseIfCond, None),
-                  elseIfCond.pos,
-                  "Else-if condition must be boolean"
-                )
-                infer(branch, None)
-              } :::
-              List(elseBranch.map(infer(_, None)).getOrElse(NullType))
+          val branchEntry = environment.activePackage
+          val (thenType, thenPackage) =
+            inferFromPackage(branchEntry)(infer(thenBranch, None))
+          var falsePathPackage = branchEntry
+          val elseIfResults = elseIfs.map { (elseIfCond, branch) =>
+            environment = environment.withActivePackage(falsePathPackage)
+            requireBoolean(
+              infer(elseIfCond, None),
+              elseIfCond.pos,
+              "Else-if condition must be boolean"
+            )
+            falsePathPackage = environment.activePackage
+            inferFromPackage(falsePathPackage)(infer(branch, None))
+          }
+          val (elseType, elsePackage) =
+            elseBranch match
+              case Some(branch) =>
+                inferFromPackage(falsePathPackage)(infer(branch, None))
+              case None => NullType -> falsePathPackage
+          val branchTypes = thenType :: elseIfResults.map(_._1) ::: List(elseType)
+          mergeActivePackages(
+            thenPackage :: elseIfResults.map(_._2) ::: List(elsePackage)
+          )
           typed(expr, TypeRules.joinAll(branchTypes, NullType))
 
         case SwitchExpr(target, cases, _) =>
           infer(target, None)
-          val branchTypes = cases.map { switchCase =>
-            switchCase.labels.foreach(_.foreach(infer(_, None)))
-            infer(switchCase.body, None)
+          val branchEntry = environment.activePackage
+          val branchResults = cases.map { switchCase =>
+            inferFromPackage(branchEntry) {
+              switchCase.labels.foreach(_.foreach(infer(_, None)))
+              infer(switchCase.body, None)
+            }
           }
+          val branchTypes = branchResults.map(_._1)
+          val branchPackages = branchResults.map(_._2)
           val possibleTypes =
             if cases.exists(_.labels.contains(None)) then branchTypes
             else branchTypes :+ NullType
+          val possiblePackages =
+            if cases.exists(_.labels.contains(None)) then branchPackages
+            else branchPackages :+ branchEntry
+          mergeActivePackages(possiblePackages)
           typed(expr, TypeRules.joinAll(possibleTypes, NullType))
 
         case WhileExpr(cond, body, _) =>
           requireBoolean(infer(cond, None), cond.pos, "While condition must be boolean")
-          typed(expr, TypeRules.join(infer(body, None), NullType))
+          val loopEntry = environment.activePackage
+          val (bodyType, bodyPackage) =
+            inferFromPackage(loopEntry)(infer(body, None))
+          mergeActivePackages(List(loopEntry, bodyPackage))
+          typed(expr, TypeRules.join(bodyType, NullType))
 
         case DoWhileExpr(body, cond, _) =>
-          val bodyType = infer(body, None)
+          val loopEntry = environment.activePackage
+          val (bodyType, bodyPackage) =
+            inferFromPackage(loopEntry)(infer(body, None))
           requireBoolean(infer(cond, None), cond.pos, "Do-while condition must be boolean")
+          mergeActivePackages(
+            List(loopEntry, bodyPackage, environment.activePackage)
+          )
           typed(expr, TypeRules.join(bodyType, NullType))
 
         case ForExpr(init, cond, update, body, _) =>
@@ -272,25 +343,39 @@ object TypeChecker:
                 "For condition must be boolean"
               )
             )
-            val bodyType = infer(body, None)
-            update.foreach(infer(_, None))
+            val loopEntry = environment.activePackage
+            val (bodyType, bodyPackage) =
+              inferFromPackage(loopEntry) {
+                val inferredBody = infer(body, None)
+                update.foreach(infer(_, None))
+                inferredBody
+              }
+            mergeActivePackages(List(loopEntry, bodyPackage))
             TypeRules.join(bodyType, NullType)
           }
           typed(expr, resultType)
 
         case ForEachExpr(vars, iterable, body, _) =>
           val iterableType = infer(iterable, None)
+          val loopEntry = environment.activePackage
           val resultType = withScope {
             declareForEachTargets(vars, iterableType)
-            TypeRules.join(infer(body, None), NullType)
+            val (bodyType, bodyPackage) =
+              inferFromPackage(loopEntry)(infer(body, None))
+            mergeActivePackages(List(loopEntry, bodyPackage))
+            TypeRules.join(bodyType, NullType)
           }
           typed(expr, resultType)
 
         case ForeachExpr(varName, iterable, body, _) =>
           val iterableType = infer(iterable, None)
+          val loopEntry = environment.activePackage
           val resultType = withScope {
             declareForEachTargets(List(varName), iterableType)
-            TypeRules.join(infer(body, None), NullType)
+            val (bodyType, bodyPackage) =
+              inferFromPackage(loopEntry)(infer(body, None))
+            mergeActivePackages(List(loopEntry, bodyPackage))
+            TypeRules.join(bodyType, NullType)
           }
           typed(expr, resultType)
 
@@ -340,19 +425,21 @@ object TypeChecker:
             normalizedReturn,
             collection.mutable.ListBuffer.empty
           )
-          val bodyType = withFunctionContext(context) {
-            withScope {
-              params.zip(normalizedParams).zipWithIndex.foreach {
-                case ((paramName, paramType), index) =>
-                  val bindingType =
-                    if varargs && index == params.length - 1 then ArrayType(paramType)
-                    else paramType
-                  environment = environment.declare(
-                    paramName,
-                    TypeBinding(bindingType, false)
-                  )
+          val bodyType = withRestoredPackage {
+            withFunctionContext(context) {
+              withScope {
+                params.zip(normalizedParams).zipWithIndex.foreach {
+                  case ((paramName, paramType), index) =>
+                    val bindingType =
+                      if varargs && index == params.length - 1 then ArrayType(paramType)
+                      else paramType
+                    environment = environment.declare(
+                      paramName,
+                      TypeBinding(bindingType, false)
+                    )
+                }
+                infer(body, None)
               }
-              infer(body, None)
             }
           }
           val inferredReturns = context.returns.toList :+ (bodyType -> body.pos)
@@ -449,41 +536,53 @@ object TypeChecker:
               )
           typed(expr, resultType)
 
-        case NewExpr(className, dims, args, classBody, _) =>
+        case NewExpr(className, dims, args, classBody, pos) =>
+          val resultType = fixedNamedType(className, pos)
           dims.foreach(infer(_, None))
           args.foreach(infer(_, None))
-          classBody.foreach(inferClassBody)
-          typed(expr, fixedNamedType(className))
+          classBody.foreach(inferClassBody(_, pos))
+          typed(expr, resultType)
 
         case CastExpr(typeName, _, value, pos) =>
-          validateFixedTypeName(typeName, pos)
+          val resultType = fixedNamedType(typeName, pos)
           infer(value, None)
-          typed(expr, fixedNamedType(typeName))
+          typed(expr, resultType)
 
         case ClassExpr(value, _) =>
           infer(value, None)
           typed(expr, AnyType)
 
-        case ClassRef(name, _) =>
-          typed(expr, fixedNamedType(name))
+        case ClassRef(name, pos) =>
+          typed(expr, fixedNamedType(name, pos))
 
-        case BeanDef(typeName, props, _) =>
+        case BeanDef(typeName, props, pos) =>
+          val resultType = fixedNamedType(typeName, pos)
           props.foreach(property => infer(property.value, None))
-          typed(expr, fixedNamedType(typeName))
+          typed(expr, resultType)
 
-        case ClassDef(_, _, _, body, _) =>
-          inferClassBody(body)
+        case ClassDef(_, superClass, interfaces, body, pos) =>
+          superClass.foreach(validateFixedTypeName(_, pos))
+          interfaces.foreach(validateFixedTypeName(_, pos))
+          inferClassBody(body, pos)
           typed(expr, UnitType)
 
-        case RecordDef(name, _, _) =>
+        case RecordDef(name, fields, pos) =>
+          fields.flatMap(_.typeName).foreach { typeName =>
+            validateFixedTypeName(List(typeName), pos)
+          }
           environment = environment.declare(
             name,
             TypeBinding(AnyType, false)
           )
           typed(expr, UnitType)
 
-        case PackageExpr(_, dynamic, _) =>
-          dynamic.foreach(infer(_, None))
+        case PackageExpr(parts, dynamic, _) =>
+          dynamic match
+            case Some(packageName) =>
+              infer(packageName, None)
+              environment = environment.inDynamicPackage
+            case None =>
+              environment = environment.inPackage(parts.mkString("."))
           typed(expr, UnitType)
 
         case ImportExpr(_, _, _, dynamic, _) =>
@@ -491,20 +590,26 @@ object TypeChecker:
           typed(expr, UnitType)
 
         case TryExpr(body, catches, finallyBlock, _) =>
-          val bodyType = infer(body, None)
-          val catchTypes = catches.map { catchClause =>
-            withScope {
-              val caughtType =
-                catchClause.exType
-                  .map(normalizeType(_, Set.empty, catchClause.pos))
-                  .getOrElse(AnyType)
-              environment = environment.declare(
-                catchClause.varName,
-                TypeBinding(caughtType, false)
-              )
-              infer(catchClause.body, None)
+          val branchEntry = environment.activePackage
+          val (bodyType, bodyPackage) =
+            inferFromPackage(branchEntry)(infer(body, None))
+          val catchResults = catches.map { catchClause =>
+            inferFromPackage(branchEntry) {
+              withScope {
+                val caughtType =
+                  catchClause.exType
+                    .map(normalizeType(_, Set.empty, catchClause.pos))
+                    .getOrElse(AnyType)
+                environment = environment.declare(
+                  catchClause.varName,
+                  TypeBinding(caughtType, false)
+                )
+                infer(catchClause.body, None)
+              }
             }
           }
+          val catchTypes = catchResults.map(_._1)
+          mergeActivePackages(bodyPackage :: catchResults.map(_._2))
           finallyBlock.foreach(infer(_, None))
           typed(expr, TypeRules.joinAll(bodyType :: catchTypes, bodyType))
 
@@ -551,6 +656,27 @@ object TypeChecker:
       functionContexts = context :: functionContexts
       try body
       finally functionContexts = functionContexts.tail
+
+    private def withRestoredPackage[A](body: => A): A =
+      val savedPackage = environment.activePackage
+      try body
+      finally environment = environment.withActivePackage(savedPackage)
+
+    private def inferFromPackage[A](
+      packageName: Option[String]
+    )(body: => A): (A, Option[String]) =
+      environment = environment.withActivePackage(packageName)
+      val result = body
+      result -> environment.activePackage
+
+    private def mergeActivePackages(
+      packages: Iterable[Option[String]]
+    ): Unit =
+      val distinctPackages = packages.toSet
+      val mergedPackage =
+        if distinctPackages.size == 1 then distinctPackages.head
+        else None
+      environment = environment.withActivePackage(mergedPackage)
 
     private def requireArity(expected: Int, actual: Int, pos: SourcePos): Unit =
       if expected != actual then
@@ -669,7 +795,8 @@ object TypeChecker:
           )
         case _ => tpe
 
-    private def fixedNamedType(name: List[String]): StaticType =
+    private def fixedNamedType(name: List[String], pos: SourcePos): StaticType =
+      validateFixedTypeName(name, pos)
       if name.nonEmpty then NamedType(name.mkString("."))
       else AnyType
 
@@ -705,39 +832,46 @@ object TypeChecker:
         case (None, None) => existing.parameters.length == current.parameters.length
         case _ => false
 
-    private def inferClassBody(body: ClassDefBody): Unit =
+    private def inferClassBody(body: ClassDefBody, pos: SourcePos): Unit =
       val classContext =
         FunctionContext(None, collection.mutable.ListBuffer.empty)
-      withFunctionContext(classContext) {
-        withScope {
-          body.fields.foreach { field =>
-            val fieldType =
-              field.init.map(infer(_, None)).getOrElse(
-                field.typeName
-                  .map(parts => StaticType.fromTypeExpr(TypeExpr(parts)))
-                  .getOrElse(AnyType)
+      withRestoredPackage {
+        withFunctionContext(classContext) {
+          withScope {
+            body.fields.foreach { field =>
+              field.typeName.foreach(validateFixedTypeName(_, pos))
+              val fieldType =
+                field.init.map(infer(_, None)).getOrElse(
+                  field.typeName
+                    .map(parts => StaticType.fromTypeExpr(TypeExpr(parts)))
+                    .getOrElse(AnyType)
+                )
+              environment = environment.declare(
+                field.name,
+                TypeBinding(fieldType, false)
               )
-            environment = environment.declare(
-              field.name,
-              TypeBinding(fieldType, false)
-            )
-          }
-          body.methods.foreach { method =>
-            val methodContext =
-              FunctionContext(None, collection.mutable.ListBuffer.empty)
-            withFunctionContext(methodContext) {
-              withScope {
-                method.params.foreach { (typeName, name) =>
-                  val parameterType =
-                    typeName
-                      .map(parts => StaticType.fromTypeExpr(TypeExpr(parts)))
-                      .getOrElse(AnyType)
-                  environment = environment.declare(
-                    name,
-                    TypeBinding(parameterType, false)
-                  )
+            }
+            body.methods.foreach { method =>
+              method.returnType.foreach(validateFixedTypeName(_, pos))
+              val methodContext =
+                FunctionContext(None, collection.mutable.ListBuffer.empty)
+              withRestoredPackage {
+                withFunctionContext(methodContext) {
+                  withScope {
+                    method.params.foreach { (typeName, name) =>
+                      typeName.foreach(validateFixedTypeName(_, pos))
+                      val parameterType =
+                        typeName
+                          .map(parts => StaticType.fromTypeExpr(TypeExpr(parts)))
+                          .getOrElse(AnyType)
+                      environment = environment.declare(
+                        name,
+                        TypeBinding(parameterType, false)
+                      )
+                    }
+                    infer(method.body, None)
+                  }
                 }
-                infer(method.body, None)
               }
             }
           }
