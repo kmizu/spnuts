@@ -165,7 +165,7 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
       spnuts.ast.IntLit(3, "3", pos),
       pos
     )
-    TypeChecker.check(range, TypeEnvironment.empty).resultType shouldBe ListType(LongType)
+    TypeChecker.check(range, TypeEnvironment.empty).resultType shouldBe ArrayType(LongType)
 
     val slice = spnuts.ast.RangeAccess(
       spnuts.ast.ListExpr(List(spnuts.ast.IntLit(1, "1", pos)), false, pos),
@@ -187,6 +187,76 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
       pos
     )
     intercept[TypeError](TypeChecker.check(range, TypeEnvironment.empty))
+  }
+
+  it should "reject known non-indexable receivers at the receiver position" in {
+    val receiverTypes = List(
+      UnitType,
+      BooleanType,
+      LongType,
+      DoubleType,
+      CharType,
+      NullType,
+      FunctionType(Nil, AnyType)
+    )
+
+    receiverTypes.foreach { receiverType =>
+      val environment =
+        TypeEnvironment.empty.declare("value", TypeBinding(receiverType, false))
+      val error = intercept[TypeError](check("value[0]", environment))
+
+      error.pos shouldBe spnuts.ast.SourcePos("<test>", 1, 1)
+      error.actual shouldBe Some(receiverType)
+    }
+  }
+
+  it should "reject known non-sliceable receivers at the receiver position" in {
+    val receiverTypes = List(
+      UnitType,
+      BooleanType,
+      LongType,
+      DoubleType,
+      CharType,
+      NullType,
+      FunctionType(Nil, AnyType)
+    )
+    val pos = spnuts.ast.SourcePos("<test>", 1, 1)
+
+    receiverTypes.foreach { receiverType =>
+      val receiver = spnuts.ast.Ident("value", pos)
+      val expression = spnuts.ast.RangeAccess(
+        receiver,
+        spnuts.ast.IntLit(0, "0", pos),
+        None,
+        pos
+      )
+      val environment =
+        TypeEnvironment.empty.declare("value", TypeBinding(receiverType, false))
+      val error =
+        intercept[TypeError](TypeChecker.check(expression, environment))
+
+      error.pos shouldBe receiver.pos
+      error.actual shouldBe Some(receiverType)
+    }
+  }
+
+  it should "keep dynamic index and range receivers conservative" in {
+    val receiverTypes = List(AnyType, NamedType("Dynamic"))
+    val pos = spnuts.ast.SourcePos("<test>", 1, 1)
+
+    receiverTypes.foreach { receiverType =>
+      val environment =
+        TypeEnvironment.empty.declare("value", TypeBinding(receiverType, false))
+      check("value[0]", environment).resultType shouldBe AnyType
+
+      val expression = spnuts.ast.RangeAccess(
+        spnuts.ast.Ident("value", pos),
+        spnuts.ast.IntLit(0, "0", pos),
+        None,
+        pos
+      )
+      TypeChecker.check(expression, environment).resultType shouldBe AnyType
+    }
   }
 
   it should "bind collection components inside foreach scopes" in {

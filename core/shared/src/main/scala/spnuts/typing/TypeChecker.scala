@@ -170,7 +170,8 @@ object TypeChecker:
               requireNumeric(indexType, pos, "String index must be numeric")
               CharType
             case AnyType => AnyType
-            case _ => AnyType
+            case other =>
+              dynamicAccessResult(other, obj.pos, "Cannot index this receiver type")
           typed(expr, resultType)
 
         case RangeAccess(obj, from, to, pos) =>
@@ -183,13 +184,14 @@ object TypeChecker:
             case listType @ ListType(_) => listType
             case arrayType @ ArrayType(_) => arrayType
             case StringType => StringType
-            case _ => AnyType
+            case other =>
+              dynamicAccessResult(other, obj.pos, "Cannot slice this receiver type")
           typed(expr, resultType)
 
         case RangeExpr(from, to, pos) =>
           requireNumeric(infer(from, None), pos, "Range start must be numeric")
           requireNumeric(infer(to, None), pos, "Range end must be numeric")
-          typed(expr, ListType(LongType))
+          typed(expr, ArrayType(LongType))
 
         case TernaryExpr(cond, thenExpr, elseExpr, _) =>
           requireBoolean(infer(cond, None), cond.pos, "Ternary condition must be boolean")
@@ -332,6 +334,18 @@ object TypeChecker:
       names.zip(targetTypes).foreach { (name, targetType) =>
         environment = environment.declare(name, TypeBinding(targetType, false))
       }
+
+    private def dynamicAccessResult(
+      receiverType: StaticType,
+      pos: SourcePos,
+      message: String
+    ): StaticType =
+      receiverType match
+        case UnitType | BooleanType | LongType | DoubleType | CharType | NullType =>
+          throw TypeError(message, pos, actual = Some(receiverType))
+        case FunctionType(_, _, _) =>
+          throw TypeError(message, pos, actual = Some(receiverType))
+        case _ => AnyType
 
     private def compoundResult(
       op: AssignOp,
