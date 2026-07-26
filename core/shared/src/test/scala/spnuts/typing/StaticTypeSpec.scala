@@ -32,6 +32,8 @@ class StaticTypeSpec extends AnyFlatSpec with Matchers:
     TypeRules.isCompatible(LongType, LongType) shouldBe true
     TypeRules.isCompatible(DoubleType, LongType) shouldBe true
     TypeRules.isCompatible(LongType, DoubleType) shouldBe false
+    TypeRules.isCompatible(LongType, CharType) shouldBe false
+    TypeRules.isCompatible(DoubleType, CharType) shouldBe false
     TypeRules.isCompatible(StringType, NullType) shouldBe true
     TypeRules.isCompatible(LongType, NullType) shouldBe false
     TypeRules.isCompatible(StringType, AnyType) shouldBe true
@@ -43,5 +45,7 @@ class StaticTypeSpec extends AnyFlatSpec with Matchers:
     TypeRules.join(StringType, NullType) shouldBe StringType
     TypeRules.join(ListType(LongType), ListType(DoubleType)) shouldBe
       ListType(DoubleType)
+    TypeRules.join(CharType, LongType) shouldBe AnyType
+    TypeRules.join(CharType, DoubleType) shouldBe AnyType
     TypeRules.join(LongType, StringType) shouldBe AnyType
   }

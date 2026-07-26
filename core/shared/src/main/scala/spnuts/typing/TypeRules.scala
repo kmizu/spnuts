@@ -11,16 +11,14 @@ object TypeRules:
   def isCompatible(expected: StaticType, actual: StaticType): Boolean =
     expected == actual ||
     expected == AnyType || actual == AnyType ||
-    (expected == DoubleType && (actual == LongType || actual == CharType)) ||
-    (expected == LongType && actual == CharType) ||
+    (expected == DoubleType && actual == LongType) ||
     (actual == NullType && isReference(expected))
 
   def join(left: StaticType, right: StaticType): StaticType =
     if left == right then left
     else (left, right) match
       case (AnyType, _) | (_, AnyType) => AnyType
-      case (DoubleType, LongType | CharType) | (LongType | CharType, DoubleType) => DoubleType
-      case (LongType, CharType) | (CharType, LongType) => LongType
+      case (DoubleType, LongType) | (LongType, DoubleType) => DoubleType
       case (NullType, reference) if isReference(reference) => reference
       case (reference, NullType) if isReference(reference) => reference
       case (ListType(leftElement), ListType(rightElement)) => ListType(join(leftElement, rightElement))
