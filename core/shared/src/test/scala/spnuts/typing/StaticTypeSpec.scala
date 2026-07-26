@@ -84,6 +84,39 @@ class StaticTypeSpec extends AnyFlatSpec with Matchers:
     ) shouldBe false
   }
 
+  it should "compare fixed function inputs contravariantly" in {
+    TypeRules.isCompatible(
+      FunctionType(List(DoubleType), LongType),
+      FunctionType(List(LongType), LongType)
+    ) shouldBe false
+    TypeRules.isCompatible(
+      FunctionType(List(LongType), LongType),
+      FunctionType(List(DoubleType), LongType)
+    ) shouldBe true
+  }
+
+  it should "compare vararg function inputs contravariantly" in {
+    TypeRules.isCompatible(
+      FunctionType(Nil, LongType, Some(DoubleType)),
+      FunctionType(Nil, LongType, Some(LongType))
+    ) shouldBe false
+    TypeRules.isCompatible(
+      FunctionType(Nil, LongType, Some(LongType)),
+      FunctionType(Nil, LongType, Some(DoubleType))
+    ) shouldBe true
+  }
+
+  it should "keep Any gradual in contravariant function inputs" in {
+    TypeRules.isCompatible(
+      FunctionType(List(LongType), LongType, Some(AnyType)),
+      FunctionType(List(AnyType), LongType, Some(LongType))
+    ) shouldBe true
+    TypeRules.isCompatible(
+      FunctionType(List(AnyType), LongType, Some(LongType)),
+      FunctionType(List(LongType), LongType, Some(AnyType))
+    ) shouldBe true
+  }
+
   "TypeRules.join" should "preserve useful common structure and otherwise use Any" in {
     TypeRules.join(LongType, DoubleType) shouldBe DoubleType
     TypeRules.join(StringType, NullType) shouldBe StringType

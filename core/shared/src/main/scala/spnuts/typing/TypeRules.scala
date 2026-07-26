@@ -30,9 +30,15 @@ object TypeRules:
           ) =>
         expectedParameters.length == actualParameters.length &&
           expectedVararg.isDefined == actualVararg.isDefined &&
-          expectedParameters.zip(actualParameters).forall(isCompatible) &&
+          expectedParameters.zip(actualParameters).forall {
+            (expectedParameter, actualParameter) =>
+              isCompatible(actualParameter, expectedParameter)
+          } &&
           isCompatible(expectedResult, actualResult) &&
-          expectedVararg.zip(actualVararg).forall(isCompatible)
+          expectedVararg.zip(actualVararg).forall {
+            (expectedElement, actualElement) =>
+              isCompatible(actualElement, expectedElement)
+          }
       case (
             NamedType(expectedName, expectedArguments),
             NamedType(actualName, actualArguments)
