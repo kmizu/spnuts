@@ -76,6 +76,7 @@ class ReplSpec extends AnyFlatSpec with Matchers:
     val repl = freshRepl()
     repl.eval("x = 1") shouldBe "1"
     repl.eval("""x = "bad"""") should include ("Type error")
+    repl.eval("x = true") should include ("Type error")
     repl.eval("x + 1") shouldBe "2"
   }
 

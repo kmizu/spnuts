@@ -1585,10 +1585,17 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
   }
 
   it should "type-check code inside string eval" in {
+    val sideEffectName = "typingStringEvalSideEffectTask7"
+    val valueName = "typingStringEvalValueTask7"
     val error = intercept[TypeError] {
-      runLib("""eval("x = 1; x = \"bad\"")""")
+      runLib(
+        raw"""eval("$sideEffectName = 1; $valueName = 1; $valueName = \"bad\"")"""
+      )
     }
     error.expected shouldBe Some(StaticType.LongType)
+    val globalBindings = PnutsPackage.global.allBindings.toMap
+    globalBindings.get(sideEffectName) shouldBe None
+    globalBindings.get(valueName) shouldBe None
   }
 
   it should "make staged types visible to same-context nested eval" in {
