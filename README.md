@@ -126,6 +126,11 @@ immutable; `var` and the legacy assignment form (`name = value`) are mutable,
 but later values must remain compatible with the binding's type. The only
 implicit numeric widening is `Long` to `Double`.
 
+`Null` is compatible with reference static types, but not with primitive
+static types. Because legacy assignments are also inferred and fixed,
+`value = null` gives `value` the type `Null`; assigning a later non-null value
+is a type error.
+
 `Any` marks dynamic boundaries, including unannotated parameters and values
 coming from host, Java, or `eval` integration. Compatibility is structural and
 recursive, so `Any` also works inside collection and function types; existing

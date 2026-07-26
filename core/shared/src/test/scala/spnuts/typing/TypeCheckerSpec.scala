@@ -24,6 +24,15 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
     result.nextEnvironment.lookup("x").map(_.tpe) shouldBe Some(LongType)
   }
 
+  it should "keep a legacy null assignment fixed as Null" in {
+    check("x = null").nextEnvironment.lookup("x") shouldBe
+      Some(TypeBinding(NullType, false))
+
+    val error = intercept[TypeError](check("x = null; x = 1"))
+    error.expected shouldBe Some(NullType)
+    error.actual shouldBe Some(LongType)
+  }
+
   it should "keep same-chunk package bindings independent" in {
     val result = check(
       """package typing_checker_package_p

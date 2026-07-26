@@ -810,6 +810,35 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
     run("var ratio: Double = 1; ratio") shouldBe 1.0
   }
 
+  it should "accept a null initializer for a reference declaration" in {
+    run("val text: String = null; text") shouldBe (null: Any)
+  }
+
+  it should "reject a null initializer for a primitive declaration before evaluation" in {
+    val error = intercept[TypeError] {
+      run("val count: Long = null; count")
+    }
+    error.expected shouldBe Some(StaticType.LongType)
+    error.actual shouldBe Some(StaticType.NullType)
+  }
+
+  it should "accept a dynamic value for a Unit declaration" in {
+    runLib("""val result: Unit = eval("1"); result""") shouldBe 1L
+  }
+
+  it should "accept Long initializers for integer alias declarations" in {
+    forEvery(List("Int", "Short", "Byte")) { alias =>
+      run(s"val count: $alias = 1; count") shouldBe 1L
+    }
+  }
+
+  it should "reject an incompatible dynamic declaration initializer at runtime" in {
+    val error = intercept[RuntimeError] {
+      runLib("""val text: String = eval("1"); text""")
+    }
+    error.getMessage should include("declared as String but got Long")
+  }
+
   it should "raise type error for wrong val type" in {
     val ex = intercept[Exception] {
       run("function f() { val x: java.lang.Long = \"hello\"; x }; f()")
