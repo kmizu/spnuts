@@ -27,6 +27,9 @@ final class PnutsPackage(val name: String, val parent: Option[PnutsPackage] = No
   def child(childName: String): PnutsPackage =
     children.getOrElseUpdate(childName, PnutsPackage(s"$name.$childName", Some(this)))
 
+  /** Iterate over all local bindings in this package (not parent bindings). */
+  def allBindings: Iterable[(String, Binding)] = symbols
+
 object PnutsPackage:
   /** The global root package (name = ""). */
   val global: PnutsPackage = PnutsPackage("")

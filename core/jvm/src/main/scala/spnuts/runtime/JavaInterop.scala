@@ -226,18 +226,48 @@ object JavaInterop:
     if scores.contains(-1) then Int.MaxValue else scores.sum
 
   private def selectBest(candidates: Array[Method], args: Array[Any]): Option[Method] =
-    candidates.map(m => m -> scoreMethod(m.getParameterTypes, args))
-              .filter(_._2 < Int.MaxValue)
-              .sortBy(_._2)
-              .headOption
-              .map(_._1)
+    val scored: Seq[(Method, Int)] = candidates.toSeq
+      .map(m => m -> scoreMethod(m.getParameterTypes, args))
+      .filter(_._2 < Int.MaxValue)
+    selectBestOverload(scored, args)(_.getParameterTypes, _.toString)
 
   private def selectBestCtor(candidates: Array[Constructor[?]], args: Array[Any]): Option[Constructor[?]] =
-    candidates.map(c => c -> scoreMethod(c.getParameterTypes, args))
-              .filter(_._2 < Int.MaxValue)
-              .sortBy(_._2)
-              .headOption
-              .map(_._1)
+    val scored: Seq[(Constructor[?], Int)] = candidates.toSeq
+      .map(c => c -> scoreMethod(c.getParameterTypes, args))
+      .filter(_._2 < Int.MaxValue)
+    selectBestOverload(scored, args)(_.getParameterTypes, _.toString)
+
+  /**
+   * Reflection does not guarantee method order. For a null argument every
+   * reference parameter has the same compatibility score, so prefer the
+   * least-specific reference type (Object before String, for example).
+   */
+  private def selectBestOverload[A](
+      scored: Seq[(A, Int)],
+      args: Array[Any],
+  )(parameters: A => Array[Class[?]], signature: A => String): Option[A] =
+    scored.map(_._2).minOption.flatMap { bestScore =>
+      val tied = scored.collect { case (candidate, score) if score == bestScore => candidate }
+      val preferred =
+        if args.contains(null) then
+          tied.filterNot(candidate =>
+            tied.exists(other => isLessSpecificForNullArgs(parameters(other), parameters(candidate), args))
+          ).sortBy(signature)
+        else tied
+      preferred.headOption
+    }
+
+  private def isLessSpecificForNullArgs(
+      left: Array[Class[?]],
+      right: Array[Class[?]],
+      args: Array[Any],
+  ): Boolean =
+    val comparisons = left.zip(right).zip(args).collect {
+      case ((leftType, rightType), null) => leftType -> rightType
+    }
+    comparisons.nonEmpty &&
+    comparisons.forall { case (leftType, rightType) => leftType.isAssignableFrom(rightType) } &&
+    comparisons.exists { case (leftType, rightType) => leftType != rightType }
 
   // ── Argument coercion ──────────────────────────────────────────────────────
 

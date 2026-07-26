@@ -3,7 +3,7 @@ import scalanativecrossproject.ScalaNativeCrossPlugin.autoImport.NativePlatform
 
 ThisBuild / scalaVersion := "3.3.1"
 ThisBuild / organization := "org.spnuts"
-ThisBuild / version      := "0.1-SNAPSHOT"
+ThisBuild / version      := "0.1.0"
 
 ThisBuild / scalacOptions ++= Seq(
   "-unchecked",
@@ -45,7 +45,10 @@ lazy val repl = crossProject(JVMPlatform, NativePlatform)
   .crossType(CrossType.Full)
   .in(file("repl"))
   .dependsOn(core)
-  .settings(name := "spnuts-repl")
+  .settings(
+    name := "spnuts-repl",
+    libraryDependencies += "org.scalatest" %%% "scalatest" % "3.2.19" % Test,
+  )
   .jvmSettings(
     libraryDependencies += "org.jline" % "jline" % "3.27.1",
     Compile / mainClass := Some("spnuts.repl.Main"),

@@ -4,6 +4,12 @@ A Scala 3 reimplementation of the [Pnuts](https://pnuts.dev.java.net/) scripting
 
 Builds for both **JVM** and **Scala Native** (cross-platform).
 
+## Download SPnuts 0.1.0
+
+Runnable JVM and Linux Native distributions, their checksums, and installation
+instructions are published on the [SPnuts release site](https://kmizu.github.io/spnuts/).
+GitHub Release assets contain the same files.
+
 ## Features
 
 - Hand-written PEG lexer/parser — no parser generator needed
@@ -25,12 +31,13 @@ sbt "replJVM/run"
 ```
 
 ```
-SPnuts 0.1-SNAPSHOT (Scala reimplementation)
+SPnuts 0.1.0 (Scala reimplementation)
 Thanks to Tomatsu-san for the original Pnuts.
 Type :quit to exit, :help for commands.
-pnuts> 1 + 2
-3
-pnuts> function fib(n) if (n <= 1) n else fib(n-1) + fib(n-2)
+pnuts> function fib(n) {
+..... if (n <= 1) n
+..... else fib(n - 1) + fib(n - 2)
+..... }
 pnuts> fib(10)
 55
 pnuts> :quit
@@ -42,6 +49,12 @@ REPL commands:
 |---------|-------------|
 | `:help` | Show help |
 | `:quit` / `:exit` / `:q` | Exit |
+| `:load PATH` | Evaluate a script file into the current session |
+| `:bindings` | List variables defined so far in this session |
+
+Multi-line input is supported: if a statement is left open (an unclosed
+`{`, `(`, or `[`), the prompt changes to `..... ` and keeps reading until
+the statement is complete.
 
 ### Running a Script File
 
@@ -186,7 +199,7 @@ spnuts/
 
 - sbt 1.9+
 - Scala 3.3.1 (LTS)
-- JDK 11+ (JDK 17+ recommended)
+- JDK 17+
 - For Scala Native builds: LLVM/Clang toolchain + Scala Native 0.5.6
 
 ## Background

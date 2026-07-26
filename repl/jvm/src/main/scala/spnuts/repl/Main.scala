@@ -14,12 +14,12 @@ object Main:
 
     if args.nonEmpty then
       // Script mode: evaluate file
-      val src = scala.io.Source.fromFile(args(0)).mkString
       try
+        val src = scala.io.Source.fromFile(args(0)).mkString
         val result = repl.eval(src)
         if result.nonEmpty then println(result)
       catch
-        case _: QuitException => ()
+        case e: java.io.FileNotFoundException => println(s"Error: ${e.getMessage}")
     else
       // Interactive mode
       val terminal = TerminalBuilder.terminal()
@@ -31,14 +31,15 @@ object Main:
       var running = true
       while running do
         try
-          val line = reader.readLine("pnuts> ")
+          val line = reader.readLine(repl.prompt)
           if line != null then
-            val result = repl.eval(line)
-            if result.nonEmpty then println(result)
+            repl.step(line) match
+              case StepResult.Continue    => ()
+              case StepResult.Output(txt) => if txt.nonEmpty then println(txt)
+              case StepResult.Quit        => running = false
         catch
-          case _: EndOfFileException       => running = false
-          case _: UserInterruptException   => running = false
-          case _: QuitException            => running = false
-          case e: Throwable                => println(s"Error: ${e.getMessage}")
+          case _: EndOfFileException     => running = false
+          case _: UserInterruptException => running = false
+          case e: Throwable              => println(s"Error: ${e.getMessage}")
 
       terminal.close()

@@ -6,6 +6,10 @@ import org.scalatest.BeforeAndAfterAll
 import spnuts.parser.Parser
 import spnuts.runtime.{Context, BuiltinModule, JvmPlatform, PnutsPackage}
 
+class NullOverloadFixture:
+  def render(value: String): String = "string"
+  def render(value: Object): String = "object"
+
 class JavaInteropSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll:
 
   override def beforeAll(): Unit =
@@ -457,6 +461,13 @@ class JavaInteropSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll:
     run("""
       java.lang.String.valueOf(null)
     """) shouldBe "null"
+  }
+
+  it should "prefer the least-specific reference overload for null" in {
+    run("""
+      fixture = new spnuts.interpreter.NullOverloadFixture()
+      fixture.render(null)
+    """) shouldBe "object"
   }
 
   // ── Primitive returns from Java methods ─────────────────────────────────────
