@@ -2,6 +2,7 @@ package spnuts.typing
 
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
+import spnuts.ast.BinaryExpr
 import spnuts.parser.Parser
 import spnuts.typing.StaticType.*
 
@@ -51,6 +52,71 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
       TypeEnvironment.empty.declare("answer", TypeBinding(LongType, false))
 
     check("::answer", environment).resultType shouldBe LongType
+  }
+
+  it should "reject an incompatible first target in a scalar multi-assignment" in {
+    val error = intercept[TypeError] {
+      check("""var x: String = ""; x, y = 1""")
+    }
+    error.expected shouldBe Some(StringType)
+    error.actual shouldBe Some(LongType)
+  }
+
+  it should "assign the scalar type to the first multi-target and Null to the rest" in {
+    val result = check("x, y = 1")
+
+    result.nextEnvironment.lookup("x") shouldBe Some(TypeBinding(LongType, false))
+    result.nextEnvironment.lookup("y") shouldBe Some(TypeBinding(NullType, false))
+  }
+
+  it should "reject an incompatible remaining target in a scalar multi-assignment" in {
+    val error = intercept[TypeError] {
+      check("var y: Long = 0; x, y = 1")
+    }
+    error.expected shouldBe Some(LongType)
+    error.actual shouldBe Some(NullType)
+  }
+
+  it should "reject Char arithmetic" in {
+    intercept[TypeError](check("'a' + 1"))
+  }
+
+  it should "reject unary minus on Char" in {
+    intercept[TypeError](check("-'a'"))
+  }
+
+  it should "reject increment and numeric compound assignment on Char" in {
+    intercept[TypeError](check("var x = 'a'; x++"))
+    intercept[TypeError](check("var x = 'a'; x += 1"))
+  }
+
+  it should "infer and validate compound assignments" in {
+    val result = check("var x: Double = 1; x += 2")
+    result.resultType shouldBe DoubleType
+    result.nextEnvironment.lookup("x") shouldBe Some(TypeBinding(DoubleType, false))
+
+    val error = intercept[TypeError](check("var x = 1; x += 2.0"))
+    error.expected shouldBe Some(LongType)
+    error.actual shouldBe Some(DoubleType)
+  }
+
+  it should "permit an Any operand when validity is not statically known" in {
+    val environment =
+      TypeEnvironment.empty.declare("dynamic", TypeBinding(AnyType, false))
+
+    check("dynamic - 1", environment).resultType shouldBe AnyType
+  }
+
+  it should "record operator and operand types in the type table" in {
+    val expression = Parser.parseExpr("1 + 2", "<test>")
+    val result = TypeChecker.check(expression, TypeEnvironment.empty)
+
+    result.table.get(expression) shouldBe Some(LongType)
+    expression match
+      case BinaryExpr(_, lhs, rhs, _) =>
+        result.table.get(lhs) shouldBe Some(LongType)
+        result.table.get(rhs) shouldBe Some(LongType)
+      case _ => fail("parser did not produce a binary expression")
   }
 
   it should "reject a proven-invalid operator" in {

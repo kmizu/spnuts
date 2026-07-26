@@ -87,15 +87,26 @@ object TypeChecker:
 
         case MultiAssign(targets, rhs, pos) =>
           val rhsType = infer(rhs, None)
-          targets.foreach { target =>
+          val targetTypes = rhsType match
+            case AnyType | ListType(_) | ArrayType(_) =>
+              List.fill(targets.size)(AnyType)
+            case scalarType =>
+              scalarType :: List.fill(targets.size - 1)(NullType)
+          targets.zip(targetTypes).foreach { (target, targetType) =>
             environment.lookup(target.name) match
               case Some(binding) if binding.immutable =>
                 throw TypeError(s"Cannot assign to immutable binding", pos)
               case Some(binding) =>
+                requireCompatible(
+                  binding.tpe,
+                  targetType,
+                  pos,
+                  "Assigned value has an incompatible type"
+                )
                 typed(target, binding.tpe)
               case None =>
-                environment = environment.declare(target.name, TypeBinding(AnyType, false))
-                typed(target, AnyType)
+                environment = environment.declare(target.name, TypeBinding(targetType, false))
+                typed(target, targetType)
           }
           typed(expr, rhsType)
 
@@ -189,7 +200,7 @@ object TypeChecker:
           requireNumeric(operand, pos, s"Operator $op requires a numeric operand")
           operand match
             case LongType => LongType
-            case DoubleType | CharType => DoubleType
+            case DoubleType => DoubleType
             case AnyType => AnyType
             case _ => AnyType
         case BitNot =>
@@ -200,9 +211,7 @@ object TypeChecker:
           BooleanType
         case PreIncr | PreDecr | PostIncr | PostDecr =>
           requireNumeric(operand, pos, s"Operator $op requires a numeric operand")
-          operand match
-            case CharType => LongType
-            case other => other
+          operand
 
     private def numericResult(
       left: StaticType,
@@ -218,7 +227,7 @@ object TypeChecker:
 
     private def requireNumeric(tpe: StaticType, pos: SourcePos, message: String): Unit =
       tpe match
-        case AnyType | LongType | DoubleType | CharType => ()
+        case AnyType | LongType | DoubleType => ()
         case other => throw TypeError(message, pos, actual = Some(other))
 
     private def requireBoolean(tpe: StaticType, pos: SourcePos, message: String): Unit =
