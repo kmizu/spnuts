@@ -181,7 +181,6 @@ object TypeChecker:
             requireNumeric(infer(bound, None), pos, "Range end must be numeric")
           )
           val resultType = objectType match
-            case listType @ ListType(_) => listType
             case arrayType @ ArrayType(_) => arrayType
             case StringType => StringType
             case other =>
@@ -341,7 +340,8 @@ object TypeChecker:
       message: String
     ): StaticType =
       receiverType match
-        case UnitType | BooleanType | LongType | DoubleType | CharType | NullType =>
+        case UnitType | BooleanType | LongType | DoubleType | CharType | NullType |
+            ListType(_) | MapType(_, _) =>
           throw TypeError(message, pos, actual = Some(receiverType))
         case FunctionType(_, _, _) =>
           throw TypeError(message, pos, actual = Some(receiverType))

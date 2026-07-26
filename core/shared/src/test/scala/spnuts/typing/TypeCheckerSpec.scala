@@ -167,13 +167,16 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
     )
     TypeChecker.check(range, TypeEnvironment.empty).resultType shouldBe ArrayType(LongType)
 
+    val arrayRef = spnuts.ast.Ident("values", pos)
     val slice = spnuts.ast.RangeAccess(
-      spnuts.ast.ListExpr(List(spnuts.ast.IntLit(1, "1", pos)), false, pos),
+      arrayRef,
       spnuts.ast.IntLit(0, "0", pos),
       None,
       pos
     )
-    TypeChecker.check(slice, TypeEnvironment.empty).resultType shouldBe ListType(LongType)
+    val environment =
+      TypeEnvironment.empty.declare("values", TypeBinding(ArrayType(LongType), false))
+    TypeChecker.check(slice, environment).resultType shouldBe ArrayType(LongType)
   }
 
   it should "validate collection indices and range bounds when their types are known" in {
@@ -240,8 +243,33 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
     }
   }
 
+  it should "reject collection receivers unsupported by runtime range access" in {
+    val receiverTypes = List(
+      ListType(LongType),
+      MapType(StringType, LongType)
+    )
+    val pos = spnuts.ast.SourcePos("<test>", 1, 1)
+
+    receiverTypes.foreach { receiverType =>
+      val receiver = spnuts.ast.Ident("value", pos)
+      val expression = spnuts.ast.RangeAccess(
+        receiver,
+        spnuts.ast.IntLit(0, "0", pos),
+        None,
+        pos
+      )
+      val environment =
+        TypeEnvironment.empty.declare("value", TypeBinding(receiverType, false))
+      val error =
+        intercept[TypeError](TypeChecker.check(expression, environment))
+
+      error.pos shouldBe receiver.pos
+      error.actual shouldBe Some(receiverType)
+    }
+  }
+
   it should "keep dynamic index and range receivers conservative" in {
-    val receiverTypes = List(AnyType, NamedType("Dynamic"))
+    val receiverTypes = List(AnyType, NamedType("Dynamic"), TypeVariable("T"))
     val pos = spnuts.ast.SourcePos("<test>", 1, 1)
 
     receiverTypes.foreach { receiverType =>
