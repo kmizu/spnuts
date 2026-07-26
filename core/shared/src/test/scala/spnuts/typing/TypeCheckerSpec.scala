@@ -363,6 +363,21 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
     error.actual shouldBe Some(LongType)
   }
 
+  it should "accept nested Any in annotated collection parameters and returns" in {
+    check(
+      "function take(xs: List<Any>): Long 0; take([1])"
+    ).resultType shouldBe LongType
+    check("function box(): List<Any> [1]").resultType shouldBe
+      FunctionType(Nil, ListType(AnyType), None)
+  }
+
+  it should "accept unannotated closures at compatible function boundaries" in {
+    check(
+      """function apply(f: (Long) -> Long): Long f(1)
+        |apply({x -> x})""".stripMargin
+    ).resultType shouldBe LongType
+  }
+
   it should "predeclare named functions for recursion" in {
     noException should be thrownBy check(
       "function fact(n: Long): Long if (n <= 1) 1 else n * fact(n - 1)"
@@ -446,6 +461,37 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
       FunctionType(List(TypeVariable("T")), TypeVariable("T"), None)
   }
 
+  it should "bind generic identity calls to actual result types" in {
+    val result = check("function id<T>(x: T): T x; id(1)")
+
+    result.resultType shouldBe LongType
+    result.nextEnvironment.lookup("id") shouldBe Some(
+      TypeBinding(
+        FunctionType(List(TypeVariable("T")), TypeVariable("T"), None),
+        false
+      )
+    )
+  }
+
+  it should "substitute the selected type parameter into generic results" in {
+    check(
+      """function second<A, B>(first: A, second: B): B second
+        |second(1, "selected")""".stripMargin
+    ).resultType shouldBe StringType
+  }
+
+  it should "use substituted generic results in surrounding expressions" in {
+    check("function id<T>(x: T): T x; id(1) + 1").resultType shouldBe LongType
+  }
+
+  it should "reject conflicting repeated generic bindings" in {
+    val error = intercept[TypeError] {
+      check("""function same<T>(left: T, right: T): T left; same(1, "bad")""")
+    }
+    error.expected shouldBe Some(LongType)
+    error.actual shouldBe Some(StringType)
+  }
+
   it should "reject known non-function values" in {
     val error = intercept[TypeError] {
       check("val value = 1; value()")
@@ -462,6 +508,13 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
 
     result.resultType shouldBe AnyType
     result.nextEnvironment.lookup("f") shouldBe Some(TypeBinding(AnyType, false))
+  }
+
+  it should "allow overload bodies to dispatch to sibling runtime slots" in {
+    noException should be thrownBy check(
+      """function f(x: Long): Long x
+        |function f(x: Long, y: Long): Long f(x)""".stripMargin
+    )
   }
 
   it should "treat Java, host, and eval results as Any" in {

@@ -328,7 +328,10 @@ object TypeChecker:
           name.foreach { functionName =>
             environment = environment.declare(
               functionName,
-              TypeBinding(provisionalType, false)
+              TypeBinding(
+                if keepDynamicBinding then AnyType else provisionalType,
+                false
+              )
             )
           }
 
@@ -387,16 +390,41 @@ object TypeChecker:
           val resultType = functionType match
             case FunctionType(parameters, result, None) =>
               requireArity(parameters.length, argumentTypes.length, pos)
-              requireArguments(parameters, args, argumentTypes)
-              result
+              val bindings = collection.mutable.Map.empty[String, StaticType]
+              bindTypeVariables(parameters, args, argumentTypes, bindings)
+              val resolvedParameters =
+                parameters.map(substituteTypeVariables(_, bindings.toMap))
+              requireArguments(resolvedParameters, args, argumentTypes)
+              substituteTypeVariables(result, bindings.toMap)
             case FunctionType(parameters, result, Some(varargElement)) =>
               if argumentTypes.length < parameters.length then
                 throw TypeError(
                   s"Function expects at least ${parameters.length} arguments but got ${argumentTypes.length}",
                   pos
                 )
-              requireArguments(
+              val bindings = collection.mutable.Map.empty[String, StaticType]
+              bindTypeVariables(
                 parameters,
+                args.take(parameters.length),
+                argumentTypes.take(parameters.length),
+                bindings
+              )
+              args.drop(parameters.length)
+                .zip(argumentTypes.drop(parameters.length))
+                .foreach { (argument, argumentType) =>
+                  bindTypeVariables(
+                    varargElement,
+                    argumentType,
+                    argument.pos,
+                    bindings
+                  )
+                }
+              val resolvedParameters =
+                parameters.map(substituteTypeVariables(_, bindings.toMap))
+              val resolvedVararg =
+                substituteTypeVariables(varargElement, bindings.toMap)
+              requireArguments(
+                resolvedParameters,
                 args.take(parameters.length),
                 argumentTypes.take(parameters.length)
               )
@@ -404,13 +432,13 @@ object TypeChecker:
                 .zip(argumentTypes.drop(parameters.length))
                 .foreach { (argument, argumentType) =>
                   requireCompatible(
-                    varargElement,
+                    resolvedVararg,
                     argumentType,
                     argument.pos,
                     "Function argument has an incompatible type"
                   )
                 }
-              result
+              substituteTypeVariables(result, bindings.toMap)
             case AnyType => AnyType
             case other =>
               throw TypeError(
@@ -541,6 +569,101 @@ object TypeChecker:
             "Function argument has an incompatible type"
           )
       }
+
+    private def bindTypeVariables(
+      parameters: List[StaticType],
+      arguments: List[Expr],
+      argumentTypes: List[StaticType],
+      bindings: collection.mutable.Map[String, StaticType]
+    ): Unit =
+      parameters.zip(arguments).zip(argumentTypes).foreach {
+        case ((parameterType, argument), argumentType) =>
+          bindTypeVariables(parameterType, argumentType, argument.pos, bindings)
+      }
+
+    private def bindTypeVariables(
+      parameterType: StaticType,
+      argumentType: StaticType,
+      pos: SourcePos,
+      bindings: collection.mutable.Map[String, StaticType]
+    ): Unit =
+      (parameterType, argumentType) match
+        case (TypeVariable(name), actualType) =>
+          bindings.get(name) match
+            case None => bindings(name) = actualType
+            case Some(existingType)
+                if TypeRules.isCompatible(existingType, actualType) &&
+                  TypeRules.isCompatible(actualType, existingType) =>
+              ()
+            case Some(existingType) =>
+              throw TypeError(
+                s"Conflicting binding for type variable $name",
+                pos,
+                Some(existingType),
+                Some(actualType)
+              )
+        case (ListType(parameterElement), ListType(argumentElement)) =>
+          bindTypeVariables(parameterElement, argumentElement, pos, bindings)
+        case (
+              MapType(parameterKey, parameterValue),
+              MapType(argumentKey, argumentValue)
+            ) =>
+          bindTypeVariables(parameterKey, argumentKey, pos, bindings)
+          bindTypeVariables(parameterValue, argumentValue, pos, bindings)
+        case (ArrayType(parameterElement), ArrayType(argumentElement)) =>
+          bindTypeVariables(parameterElement, argumentElement, pos, bindings)
+        case (
+              FunctionType(parameterParams, parameterResult, parameterVararg),
+              FunctionType(argumentParams, argumentResult, argumentVararg)
+            ) if parameterParams.length == argumentParams.length &&
+              parameterVararg.isDefined == argumentVararg.isDefined =>
+          parameterParams.zip(argumentParams).foreach {
+            (nestedParameter, nestedArgument) =>
+              bindTypeVariables(nestedParameter, nestedArgument, pos, bindings)
+          }
+          bindTypeVariables(parameterResult, argumentResult, pos, bindings)
+          parameterVararg.zip(argumentVararg).foreach {
+            (nestedParameter, nestedArgument) =>
+              bindTypeVariables(nestedParameter, nestedArgument, pos, bindings)
+          }
+        case (
+              NamedType(parameterName, parameterArguments),
+              NamedType(argumentName, argumentArguments)
+            ) if parameterName == argumentName &&
+              parameterArguments.length == argumentArguments.length =>
+          parameterArguments.zip(argumentArguments).foreach {
+            (nestedParameter, nestedArgument) =>
+              bindTypeVariables(nestedParameter, nestedArgument, pos, bindings)
+          }
+        case _ => ()
+
+    private def substituteTypeVariables(
+      tpe: StaticType,
+      bindings: Map[String, StaticType]
+    ): StaticType =
+      tpe match
+        case TypeVariable(name) => bindings.getOrElse(name, tpe)
+        case ListType(element) =>
+          ListType(substituteTypeVariables(element, bindings))
+        case MapType(key, value) =>
+          MapType(
+            substituteTypeVariables(key, bindings),
+            substituteTypeVariables(value, bindings)
+          )
+        case ArrayType(element) =>
+          ArrayType(substituteTypeVariables(element, bindings))
+        case FunctionType(parameters, result, varargElement) =>
+          FunctionType(
+            parameters.map(substituteTypeVariables(_, bindings)),
+            substituteTypeVariables(result, bindings),
+            varargElement.map(substituteTypeVariables(_, bindings))
+          )
+        case NamedType(name, arguments) =>
+          NamedType(
+            name,
+            arguments.map(substituteTypeVariables(_, bindings))
+          )
+        case _ => tpe
 
     private def fixedNamedType(name: List[String]): StaticType =
       if name.nonEmpty then NamedType(name.mkString("."))

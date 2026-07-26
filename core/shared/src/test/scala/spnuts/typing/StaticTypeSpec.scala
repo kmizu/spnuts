@@ -40,6 +40,50 @@ class StaticTypeSpec extends AnyFlatSpec with Matchers:
     TypeRules.isCompatible(AnyType, StringType) shouldBe true
   }
 
+  it should "apply gradual compatibility recursively to structural types" in {
+    TypeRules.isCompatible(ListType(AnyType), ListType(LongType)) shouldBe true
+    TypeRules.isCompatible(ListType(LongType), ListType(AnyType)) shouldBe true
+    TypeRules.isCompatible(ListType(DoubleType), ListType(LongType)) shouldBe true
+    TypeRules.isCompatible(ListType(LongType), ListType(DoubleType)) shouldBe false
+    TypeRules.isCompatible(ListType(LongType), ListType(CharType)) shouldBe false
+
+    TypeRules.isCompatible(
+      MapType(StringType, AnyType),
+      MapType(StringType, LongType)
+    ) shouldBe true
+    TypeRules.isCompatible(
+      MapType(StringType, LongType),
+      MapType(LongType, LongType)
+    ) shouldBe false
+    TypeRules.isCompatible(ArrayType(AnyType), ArrayType(LongType)) shouldBe true
+
+    TypeRules.isCompatible(
+      FunctionType(List(LongType), LongType),
+      FunctionType(List(AnyType), AnyType)
+    ) shouldBe true
+    TypeRules.isCompatible(
+      FunctionType(List(StringType), LongType, Some(AnyType)),
+      FunctionType(List(StringType), LongType, Some(LongType))
+    ) shouldBe true
+    TypeRules.isCompatible(
+      FunctionType(List(LongType), LongType),
+      FunctionType(List(LongType, LongType), LongType)
+    ) shouldBe false
+    TypeRules.isCompatible(
+      FunctionType(List(LongType), LongType),
+      FunctionType(List(LongType), LongType, Some(LongType))
+    ) shouldBe false
+
+    TypeRules.isCompatible(
+      NamedType("Box", List(AnyType)),
+      NamedType("Box", List(LongType))
+    ) shouldBe true
+    TypeRules.isCompatible(
+      NamedType("Box", List(AnyType)),
+      NamedType("Other", List(LongType))
+    ) shouldBe false
+  }
+
   "TypeRules.join" should "preserve useful common structure and otherwise use Any" in {
     TypeRules.join(LongType, DoubleType) shouldBe DoubleType
     TypeRules.join(StringType, NullType) shouldBe StringType

@@ -12,7 +12,35 @@ object TypeRules:
     expected == actual ||
     expected == AnyType || actual == AnyType ||
     (expected == DoubleType && actual == LongType) ||
-    (actual == NullType && isReference(expected))
+    (actual == NullType && isReference(expected)) ||
+    ((expected, actual) match
+      case (ListType(expectedElement), ListType(actualElement)) =>
+        isCompatible(expectedElement, actualElement)
+      case (
+            MapType(expectedKey, expectedValue),
+            MapType(actualKey, actualValue)
+          ) =>
+        isCompatible(expectedKey, actualKey) &&
+          isCompatible(expectedValue, actualValue)
+      case (ArrayType(expectedElement), ArrayType(actualElement)) =>
+        isCompatible(expectedElement, actualElement)
+      case (
+            FunctionType(expectedParameters, expectedResult, expectedVararg),
+            FunctionType(actualParameters, actualResult, actualVararg)
+          ) =>
+        expectedParameters.length == actualParameters.length &&
+          expectedVararg.isDefined == actualVararg.isDefined &&
+          expectedParameters.zip(actualParameters).forall(isCompatible) &&
+          isCompatible(expectedResult, actualResult) &&
+          expectedVararg.zip(actualVararg).forall(isCompatible)
+      case (
+            NamedType(expectedName, expectedArguments),
+            NamedType(actualName, actualArguments)
+          ) =>
+        expectedName == actualName &&
+          expectedArguments.length == actualArguments.length &&
+          expectedArguments.zip(actualArguments).forall(isCompatible)
+      case _ => false)
 
   def join(left: StaticType, right: StaticType): StaticType =
     if left == right then left
