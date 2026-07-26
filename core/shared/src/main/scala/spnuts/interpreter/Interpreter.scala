@@ -2,7 +2,8 @@ package spnuts.interpreter
 
 import spnuts.ast.*
 import spnuts.runtime.{*, given}
-import spnuts.typing.TypeChecker
+import spnuts.typing.{StaticType, TypeChecker}
+import spnuts.typing.StaticType.*
 
 /**
  * Tree-walking interpreter for SPnuts.
@@ -22,6 +23,8 @@ object Interpreter:
       ctx.typingSession.snapshot.inPackage(ctx.currentPackage.name)
     val checked = TypeChecker.check(expr, environment)
     ctx.typingSession.begin(checked.nextEnvironment)
+    val savedTypeTable = ctx.activeTypeTable
+    ctx.activeTypeTable = Some(checked.table)
     try
       // Wire interpreter callback once so built-in native functions can call user functions
       if ctx.callFn == null then
@@ -33,6 +36,7 @@ object Interpreter:
       case error: Throwable =>
         ctx.typingSession.rollback()
         throw error
+    finally ctx.activeTypeTable = savedTypeTable
 
   private def evalInner(expr: Expr, ctx: Context): Any = expr match
 
@@ -125,8 +129,8 @@ object Interpreter:
           val cls = resolveTypeExpr(te, Map.empty, ctx, pos)
           if !TypeCompat.isCompatible(cls, v) then
             throw RuntimeError(
-              s"Type error: '$name' declared as ${te.toDisplayString} but got ${v.getClass.getSimpleName}", pos)
-          (coerceNumericArg(cls, v), Some(cls))
+              s"Type error: '$name' declared as ${te.toDisplayString} but got ${runtimeTypeName(v)}", pos)
+          (TypeCompat.coerce(cls, v), Some(cls))
         case None =>
           // Infer type from the actual value (local type inference)
           (v, if v != null then Some(v.getClass) else None)
@@ -141,7 +145,6 @@ object Interpreter:
     case Assignment(op, lhs, rhs, pos) =>
       val value = computeAssign(op, lhs, rhs, ctx, pos)
       assignTo(lhs, value, ctx, pos)
-      value
 
     case MultiAssign(targets, rhs, pos) =>
       val value = evalInner(rhs, ctx)
@@ -409,18 +412,22 @@ object Interpreter:
         case _ => throw RuntimeError(s"class() requires a class name, got $v", pos)
 
     case NewExpr(className, dims, args, body, pos) =>
-      val cls = resolveClass(className, ctx, pos)
       if dims.nonEmpty then
         // Array creation: new Type[n]
+        val cls = resolveTypeExpr(TypeExpr(className), Map.empty, ctx, pos)
         val size = Operators.toLong(evalInner(dims.head, ctx)).toInt
         JavaInteropShim.newArray(cls, size)
       else
+        val cls = resolveClass(className, ctx, pos)
         val argVals = args.map(evalInner(_, ctx)).toArray
         callConstructor(cls, argVals, pos)
 
-    case CastExpr(typeName, _, expr, pos) =>
+    case CastExpr(typeName, arrayDims, expr, pos) =>
       val v   = evalInner(expr, ctx)
-      val cls = resolveClass(typeName, ctx, pos)
+      val castType = (0 until arrayDims).foldLeft(TypeExpr(typeName)) {
+        (elementType, _) => TypeExpr.array(elementType)
+      }
+      val cls = resolveTypeExpr(castType, Map.empty, ctx, pos)
       castValue(v, cls, pos)
 
     // ── Bean / class def (stubs) ───────────────────────────────────────────────
@@ -515,7 +522,7 @@ object Interpreter:
               throw RuntimeError(
                 s"Type error: parameter '${func.params(i)}' expects ${te.toDisplayString} but got ${if arg == null then "null" else TypeCompat.typeName(arg.getClass)}", pos)
             // Coerce numeric arg to declared type for transparent widening (e.g. Long→Double)
-            a(i) = coerceNumericArg(cls, arg)
+            a(i) = TypeCompat.coerce(cls, arg)
         }
       a
     else args
@@ -538,6 +545,7 @@ object Interpreter:
           if !TypeCompat.isCompatible(cls, result) then
             throw RuntimeError(
               s"Type error: ${func.name.getOrElse("<function>")} declared return type ${te.toDisplayString} but returned ${if result == null then "null" else TypeCompat.typeName(result.getClass)}", pos)
+          result = TypeCompat.coerce(cls, result)
       }
       // If any yield was called, return accumulated values as array
       val buf = ctx.yieldBuf
@@ -632,17 +640,32 @@ object Interpreter:
       case _ =>
         throw RuntimeError(s"Range access not supported for ${target.getClass.getSimpleName}", pos)
 
-  private def assignTo(lhs: Expr, value: Any, ctx: Context, pos: spnuts.ast.SourcePos): Unit =
+  private def assignTo(lhs: Expr, value: Any, ctx: Context, pos: spnuts.ast.SourcePos): Any =
     lhs match
-      case Ident(name, _)        => ctx.setValue(name, value)
-      case GlobalRef(name, _)    => PnutsPackage.global.set(name, value)
+      case Ident(name, _) =>
+        try ctx.setValue(name, value, runtimeTargetClass(lhs, ctx, pos))
+        catch
+          case error: RuntimeException =>
+            throw RuntimeError(error.getMessage, pos, error)
+        ctx.getValue(name)
+      case GlobalRef(name, _) =>
+        try
+          runtimeTargetClass(lhs, ctx, pos) match
+            case Some(cls) => PnutsPackage.global.setTyped(name, value, cls)
+            case None => PnutsPackage.global.set(name, value)
+        catch
+          case error: RuntimeException =>
+            throw RuntimeError(error.getMessage, pos, error)
+        PnutsPackage.global.lookup(name).map(_.value).orNull
       case IndexAccess(obj, idx, p) =>
         val target = evalInner(obj, ctx)
         val i = evalInner(idx, ctx)
         setElement(target, i, value, p)
+        value
       case MemberAccess(obj, member, p) =>
         val target = evalInner(obj, ctx)
         JavaInteropShim.setField(target, member, value, p)
+        value
       case _ =>
         throw RuntimeError(s"Invalid assignment target: ${lhs.getClass.getSimpleName}", pos)
 
@@ -670,8 +693,8 @@ object Interpreter:
   private def doIncr(target: Expr, ctx: Context, delta: Long, returnOld: Boolean): Any =
     val old = evalInner(target, ctx)
     val newVal = Operators.add(old, delta)
-    assignTo(target, newVal, ctx, target.pos)
-    if returnOld then old else newVal
+    val stored = assignTo(target, newVal, ctx, target.pos)
+    if returnOld then old else stored
 
   private def setElement(target: Any, idx: Any, value: Any, pos: spnuts.ast.SourcePos): Unit =
     target match
@@ -734,14 +757,36 @@ object Interpreter:
     "Unit"    -> classOf[scala.runtime.BoxedUnit],
   )
 
-  /** Coerce a value to the declared numeric type (e.g. Long→Double for transparent widening). */
-  private def coerceNumericArg(cls: Class[?], value: Any): Any =
-    if value == null then null
-    else if (cls == classOf[java.lang.Double] || cls == classOf[Double]) && !value.isInstanceOf[Double] then
-      Operators.toDouble(value)
-    else if (cls == classOf[java.lang.Float] || cls == classOf[Float]) && !value.isInstanceOf[Float] then
-      Operators.toDouble(value).toFloat
-    else value
+  private def runtimeTypeName(value: Any): String =
+    if value == null then "null"
+    else TypeCompat.typeName(value.getClass)
+
+  private def runtimeTargetClass(
+    target: Expr,
+    ctx: Context,
+    pos: spnuts.ast.SourcePos
+  ): Option[Class[?]] =
+    ctx.activeTypeTable
+      .flatMap(_.get(target))
+      .flatMap(runtimeClassForStaticType(_, ctx, pos))
+
+  private def runtimeClassForStaticType(
+    staticType: StaticType,
+    ctx: Context,
+    pos: spnuts.ast.SourcePos
+  ): Option[Class[?]] =
+    staticType match
+      case LongType => Some(classOf[java.lang.Long])
+      case DoubleType => Some(classOf[java.lang.Double])
+      case BooleanType => Some(classOf[java.lang.Boolean])
+      case CharType => Some(classOf[java.lang.Character])
+      case StringType => Some(classOf[String])
+      case UnitType => Some(classOf[scala.runtime.BoxedUnit])
+      case ArrayType(elementType) =>
+        runtimeClassForStaticType(elementType, ctx, pos).map(JavaInteropShim.arrayClass)
+      case NamedType(name, _) =>
+        Some(resolveClass(name.split('.').toList, ctx, pos))
+      case _ => None
 
   private def resolveTypeExpr(
     te: TypeExpr,

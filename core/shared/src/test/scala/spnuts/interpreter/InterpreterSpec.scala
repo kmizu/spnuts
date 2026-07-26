@@ -44,6 +44,10 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
     run("(2 + 3) * 4") shouldBe 20L
   }
 
+  it should "use primitive alias casts in arithmetic" in {
+    run("(Long) 1 + 1") shouldBe 2L
+  }
+
   it should "evaluate string concatenation" in {
     run(""""hello" + ", " + "world"""") shouldBe "hello, world"
     run(""""x = " + 42""") shouldBe "x = 42"
@@ -810,6 +814,33 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
     run("var ratio: Double = 1; ratio") shouldBe 1.0
   }
 
+  it should "store Double values for annotated and legacy bindings" in {
+    val snippets = List(
+      "val valRatio: Double = 1; valRatio",
+      "var varRatio: Double = 1; varRatio = 2; varRatio",
+      "legacyRatio = 1.0; legacyRatio = 2; legacyRatio"
+    )
+
+    forEvery(snippets.zipWithIndex) { (snippet, index) =>
+      val pkg = PnutsPackage(s"typing-double-binding-$index", Some(PnutsPackage.global))
+      val result = runWith(Context(currentPackage = pkg))(snippet)
+      result.getClass shouldBe classOf[java.lang.Double]
+    }
+  }
+
+  it should "preserve inferred Double metadata across eval calls" in {
+    val pkg = PnutsPackage("typing-double-session", Some(PnutsPackage.global))
+    val ctx = Context(currentPackage = pkg)
+
+    runWith(ctx)("sessionRatio = 1.0")
+    val result = runWith(ctx)("sessionRatio = 2")
+
+    result.getClass shouldBe classOf[java.lang.Double]
+    val bindings = pkg.allBindings.toMap
+    bindings("sessionRatio").staticType shouldBe
+      Some(classOf[java.lang.Double])
+  }
+
   it should "accept a null initializer for a reference declaration" in {
     run("val text: String = null; text") shouldBe (null: Any)
   }
@@ -1262,6 +1293,38 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
     """) shouldBe (null: Any)
   }
 
+  it should "reject dynamic null at primitive declaration parameter and return boundaries" in {
+    val snippets = List(
+      """val count: Long = eval("null"); count""",
+      """var count: Long = 1; count = eval("null")""",
+      """function take(count: Long): Long count; take(eval("null"))""",
+      """function produce(): Long eval("null"); produce()"""
+    )
+
+    forEvery(snippets) { snippet =>
+      val error = intercept[RuntimeError] {
+        runLib(snippet)
+      }
+      error.getMessage should include("null")
+    }
+  }
+
+  it should "preserve dynamic null at reference and Unit boundaries" in {
+    runLib("""val text: String = eval("null"); text""") shouldBe (null: Any)
+    runLib("""function take(text: String): String text; take(eval("null"))""") shouldBe
+      (null: Any)
+    runLib("""function produce(): String eval("null"); produce()""") shouldBe
+      (null: Any)
+    runLib("""var text: String = "value"; text = eval("null"); text""") shouldBe
+      (null: Any)
+    runLib("""val result: Unit = eval("null"); result""") shouldBe (null: Any)
+  }
+
+  it should "coerce a Long function result to the declared Double type" in {
+    val result = run("function ratio(): Double { return 1 }; ratio()")
+    result.getClass shouldBe classOf[java.lang.Double]
+  }
+
   // ── type error message content ──────────────────────────────────────────────
 
   it should "include expected and actual types in param error message" in {
@@ -1583,6 +1646,28 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
     }
     error.expected shouldBe Some(StaticType.LongType)
     pkg.lookup("sideEffect") shouldBe None
+  }
+
+  it should "reject block binding mismatches before side effects" in {
+    val pkg = PnutsPackage("typing-block-preflight", Some(PnutsPackage.global))
+    val ctx = Context(currentPackage = pkg)
+    val error = intercept[TypeError] {
+      Interpreter.eval(
+        Parser.parse(
+          """blockScopeSideEffectTask9 = 1
+            |{ blockScopeValueTask9 = 1 }
+            |blockScopeValueTask9 = "bad"""".stripMargin,
+          "<block-scope>"
+        ),
+        ctx
+      )
+    }
+
+    error.expected shouldBe Some(StaticType.LongType)
+    error.actual shouldBe Some(StaticType.StringType)
+    val localBindings = pkg.allBindings.toMap
+    localBindings.get("blockScopeSideEffectTask9") shouldBe None
+    localBindings.get("blockScopeValueTask9") shouldBe None
   }
 
   it should "persist inferred types across successful eval calls" in {

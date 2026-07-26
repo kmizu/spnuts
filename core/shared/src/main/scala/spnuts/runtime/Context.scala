@@ -1,7 +1,7 @@
 package spnuts.runtime
 
 import java.io.{PrintWriter, Writer}
-import spnuts.typing.TypingSession
+import spnuts.typing.{TypeTable, TypingSession}
 
 /**
  * Execution context. Carries all mutable state for one script execution.
@@ -16,6 +16,7 @@ final class Context(
 ):
   var stackFrame: Option[StackFrame] = None
   val typingSession: TypingSession = TypingSession()
+  private[spnuts] var activeTypeTable: Option[TypeTable] = None
 
   /**
    * Buffer for yield values accumulated during a generator call.
@@ -52,18 +53,45 @@ final class Context(
    *  2. At top level: set in current package
    */
   def setValue(name: String, value: Any): Unit =
+    setValue(name, value, None)
+
+  def setValue(
+    name: String,
+    value: Any,
+    staticType: Option[Class[?]]
+  ): Unit =
     stackFrame match
       case Some(frame) =>
         frame.lookup(name) match
-          case Some(b) => b.set(value, name)
+          case Some(b) =>
+            staticType match
+              case Some(cls) => b.setTyped(value, name, cls)
+              case None => b.set(value, name)
           case None    =>
             // Check package chain before creating a new local (Pnuts semantics: assignment
             // modifies an existing binding anywhere in scope, else creates local)
             currentPackage.lookup(name).orElse(PnutsPackage.global.lookup(name)) match
-              case Some(b) => b.set(value, name)
-              case None    => frame.declare(name, value)
+              case Some(b) =>
+                staticType match
+                  case Some(cls) => b.setTyped(value, name, cls)
+                  case None => b.set(value, name)
+              case None =>
+                staticType.foreach { cls =>
+                  if !TypeCompat.isCompatible(cls, value) then
+                    throw new RuntimeException(
+                      s"Type error: variable '$name' has type ${TypeCompat.typeName(cls)} but assigned ${if value == null then "null" else TypeCompat.typeName(value.getClass)}"
+                    )
+                }
+                frame.declareTyped(
+                  name,
+                  staticType.map(TypeCompat.coerce(_, value)).getOrElse(value),
+                  immutable = false,
+                  staticType
+                )
       case None =>
-        currentPackage.set(name, value)
+        staticType match
+          case Some(cls) => currentPackage.setTyped(name, value, cls)
+          case None => currentPackage.set(name, value)
 
   /**
    * Declare a new variable in the current scope with optional immutability.
@@ -74,7 +102,12 @@ final class Context(
       case Some(frame) =>
         frame.declareTyped(name, value, immutable, staticType)
       case None =>
-        currentPackage.set(name, value)  // top-level: always mutable
+        currentPackage.declare(
+          name,
+          value,
+          immutable = false, // top-level declarations retain legacy mutability
+          staticType
+        )
 
   /**
    * Open a new function call frame.

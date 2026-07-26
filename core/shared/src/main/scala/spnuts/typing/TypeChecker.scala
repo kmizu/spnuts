@@ -41,7 +41,7 @@ object TypeChecker:
         case GlobalRef(name, _) =>
           typed(expr, environment.lookupGlobal(name).map(_.tpe).getOrElse(AnyType))
 
-        case Block(exprs, _) => typed(expr, withScope(inferSequence(exprs)))
+        case Block(exprs, _) => typed(expr, inferSequence(exprs))
         case ExprList(exprs, _) => typed(expr, inferSequence(exprs))
 
         case VarDecl(kind, name, typeName, value, pos) =>
@@ -537,14 +537,23 @@ object TypeChecker:
           typed(expr, resultType)
 
         case NewExpr(className, dims, args, classBody, pos) =>
-          val resultType = fixedNamedType(className, pos)
+          val resultType =
+            if dims.nonEmpty then
+              val arrayType = dims.foldLeft(TypeExpr(className)) {
+                (elementType, _) => TypeExpr.array(elementType)
+              }
+              normalizeType(arrayType, Set.empty, pos)
+            else fixedNamedType(className, pos)
           dims.foreach(infer(_, None))
           args.foreach(infer(_, None))
           classBody.foreach(inferClassBody(_, pos))
           typed(expr, resultType)
 
-        case CastExpr(typeName, _, value, pos) =>
-          val resultType = fixedNamedType(typeName, pos)
+        case CastExpr(typeName, arrayDims, value, pos) =>
+          val castType = (0 until arrayDims).foldLeft(TypeExpr(typeName)) {
+            (elementType, _) => TypeExpr.array(elementType)
+          }
+          val resultType = normalizeType(castType, Set.empty, pos)
           infer(value, None)
           typed(expr, resultType)
 
@@ -722,9 +731,12 @@ object TypeChecker:
           bindings.get(name) match
             case None => bindings(name) = actualType
             case Some(existingType)
+                if existingType == AnyType || actualType == AnyType =>
+              bindings(name) = AnyType
+            case Some(existingType)
                 if TypeRules.isCompatible(existingType, actualType) &&
                   TypeRules.isCompatible(actualType, existingType) =>
-              ()
+              bindings(name) = TypeRules.join(existingType, actualType)
             case Some(existingType) =>
               throw TypeError(
                 s"Conflicting binding for type variable $name",

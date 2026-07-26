@@ -906,6 +906,42 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
     error.actual shouldBe Some(StringType)
   }
 
+  it should "bind repeated generic Any arguments deterministically" in {
+    val calls = List(
+      "choose(dynamicValue, 1)",
+      "choose(1, dynamicValue)"
+    )
+
+    forEvery(calls) { call =>
+      check(s"function choose<T>(left: T, right: T): T left; $call").resultType shouldBe
+        AnyType
+    }
+  }
+
+  it should "bind repeated nested generic Any arguments deterministically" in {
+    val calls = List(
+      "choose([dynamicValue], [1])",
+      "choose([1], [dynamicValue])"
+    )
+
+    forEvery(calls) { call =>
+      check(s"function choose<T>(left: T, right: T): T left; $call").resultType shouldBe
+        ListType(AnyType)
+    }
+  }
+
+  it should "bind repeated vararg generic Any arguments deterministically" in {
+    val calls = List(
+      "choose(dynamicValue, 1)",
+      "choose(1, dynamicValue)"
+    )
+
+    forEvery(calls) { call =>
+      check(s"function choose<T>(values: T*): T values[0]; $call").resultType shouldBe
+        AnyType
+    }
+  }
+
   it should "reject known non-function values" in {
     val error = intercept[TypeError] {
       check("val value = 1; value()")
@@ -1086,4 +1122,28 @@ class TypeCheckerSpec extends AnyFlatSpec with Matchers:
     recordResult.resultType shouldBe UnitType
     recordResult.nextEnvironment.lookup("Person") shouldBe
       Some(TypeBinding(AnyType, false))
+  }
+
+  it should "normalize primitive alias casts and array constructions" in {
+    check("(Long) 1 + 1").resultType shouldBe LongType
+
+    val pos = SourcePos("<array-construction>", 1, 1)
+    val dimension = IntLit(2, "2", pos)
+    TypeChecker.check(
+      NewExpr(List("Long"), List(dimension), Nil, None, pos),
+      TypeEnvironment.empty
+    ).resultType shouldBe ArrayType(LongType)
+    TypeChecker.check(
+      NewExpr(List("String"), List(dimension, dimension), Nil, None, pos),
+      TypeEnvironment.empty
+    ).resultType shouldBe ArrayType(ArrayType(StringType))
+  }
+
+  it should "keep block bindings visible under legacy runtime scope semantics" in {
+    val error = intercept[TypeError] {
+      check("""{ x = 1 }; x = "bad"""")
+    }
+
+    error.expected shouldBe Some(LongType)
+    error.actual shouldBe Some(StringType)
   }

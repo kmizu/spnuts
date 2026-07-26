@@ -12,7 +12,7 @@ package spnuts.runtime
 final class Binding(
   var value: Any,
   val immutable: Boolean = false,
-  val staticType: Option[Class[?]] = None,
+  var staticType: Option[Class[?]] = None,
 ):
   def set(newValue: Any, name: String): Unit =
     if immutable then throw new RuntimeException(s"Cannot reassign immutable variable '$name'")
@@ -21,5 +21,15 @@ final class Binding(
         throw new RuntimeException(
           s"Type error: variable '$name' has type ${TypeCompat.typeName(cls)} but assigned ${if newValue == null then "null" else TypeCompat.typeName(newValue.getClass)}")
     }
-    value = newValue
+    value = staticType.map(TypeCompat.coerce(_, newValue)).getOrElse(newValue)
+
+  def setTyped(newValue: Any, name: String, declaredType: Class[?]): Unit =
+    if immutable then throw new RuntimeException(s"Cannot reassign immutable variable '$name'")
+    if !TypeCompat.isCompatible(declaredType, newValue) then
+      throw new RuntimeException(
+        s"Type error: variable '$name' has type ${TypeCompat.typeName(declaredType)} but assigned ${if newValue == null then "null" else TypeCompat.typeName(newValue.getClass)}"
+      )
+    staticType = Some(declaredType)
+    value = TypeCompat.coerce(declaredType, newValue)
+
   override def toString: String = s"Binding($value)"
