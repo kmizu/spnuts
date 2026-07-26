@@ -3,6 +3,7 @@ package spnuts.compiler
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.BeforeAndAfterAll
+import spnuts.ast.{ExprList, FuncDef}
 import spnuts.parser.Parser
 import spnuts.runtime.{Context, BuiltinModule, JvmPlatform, PnutsPackage}
 import spnuts.interpreter.Interpreter
@@ -40,6 +41,34 @@ class CompilerSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll:
         case (a: Number, b: Number) => a.doubleValue() shouldBe b.doubleValue()
         case _ => String.valueOf(i) shouldBe String.valueOf(c)
     }
+
+  "Compiler.compileScript" should "throw a proven type error instead of compiling or falling back" in {
+    val ast = Parser.parse("""x = 1; x = "bad"""", "<compile-test>")
+    val exprs = ast.asInstanceOf[ExprList]
+    val error = intercept[spnuts.typing.TypeError] {
+      Compiler.compileScript(exprs, PnutsPackage("compiler-typing", None))
+    }
+    error.expected shouldBe Some(spnuts.typing.StaticType.LongType)
+    error.actual shouldBe Some(spnuts.typing.StaticType.StringType)
+  }
+
+  "Compiler.compileFunc" should "throw a proven function type error instead of falling back" in {
+    val ast =
+      Parser.parse(
+        """function broken(value: Long): Long { value = "bad"; value }""",
+        "<compile-func-test>"
+      )
+    val func = ast.asInstanceOf[ExprList].exprs.head.asInstanceOf[FuncDef]
+    val error = intercept[spnuts.typing.TypeError] {
+      Compiler.compileFunc(
+        func,
+        PnutsPackage("compiler-function-typing", None),
+        Map.empty
+      )
+    }
+    error.expected shouldBe Some(spnuts.typing.StaticType.LongType)
+    error.actual shouldBe Some(spnuts.typing.StaticType.StringType)
+  }
 
   // ── Literals ────────────────────────────────────────────────────────────────
 
