@@ -802,6 +802,14 @@ class InterpreterSpec extends AnyFlatSpec with Matchers:
     """) shouldBe 99L
   }
 
+  it should "coerce a Long initializer for a Double val" in {
+    run("val ratio: Double = 1; ratio") shouldBe 1.0
+  }
+
+  it should "coerce a Long initializer for a Double var" in {
+    run("var ratio: Double = 1; ratio") shouldBe 1.0
+  }
+
   it should "raise type error for wrong val type" in {
     val ex = intercept[Exception] {
       run("function f() { val x: java.lang.Long = \"hello\"; x }; f()")

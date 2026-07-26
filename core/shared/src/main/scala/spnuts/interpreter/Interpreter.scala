@@ -120,19 +120,21 @@ object Interpreter:
     case VarDecl(kind, name, typeName, value, pos) =>
       val v = evalInner(value, ctx)
       // Determine the static type: explicit annotation takes priority, else infer from value
-      val staticType: Option[Class[?]] = typeName match
+      val declaration = typeName match
         case Some(te) =>
           val cls = resolveTypeExpr(te, Map.empty, ctx, pos)
-          if v != null && !cls.isInstance(v) then
+          if !TypeCompat.isCompatible(cls, v) then
             throw RuntimeError(
               s"Type error: '$name' declared as ${te.toDisplayString} but got ${v.getClass.getSimpleName}", pos)
-          Some(cls)
+          (coerceNumericArg(cls, v), Some(cls))
         case None =>
           // Infer type from the actual value (local type inference)
-          if v != null then Some(v.getClass) else None
+          (v, if v != null then Some(v.getClass) else None)
+      val storedValue = declaration._1
+      val staticType = declaration._2
       val immutable = kind == DeclKind.Val
-      ctx.declareVar(name, v, immutable, staticType)
-      v
+      ctx.declareVar(name, storedValue, immutable, staticType)
+      storedValue
 
     // ── Assignment ────────────────────────────────────────────────────────────
 
