@@ -6,6 +6,7 @@ import spnuts.ast.*
 import spnuts.interpreter.Interpreter
 import spnuts.runtime.ReturnException
 import spnuts.runtime.*
+import spnuts.typing.{TypeChecker, TypeEnvironment}
 
 /**
  * ASM-based JIT compiler for SPnuts.
@@ -41,6 +42,7 @@ object Compiler:
    * Falls back to `None` if compilation is not possible.
    */
   def compileScript(exprs: ExprList, pkg: PnutsPackage): Option[Context => Any] =
+    TypeChecker.check(exprs, TypeEnvironment.empty.inPackage(pkg.name))
     try
       val className = freshClassName("Script")
       val bytes = buildClass(className, Nil, exprs)
@@ -60,6 +62,7 @@ object Compiler:
    */
   def compileFunc(func: FuncDef, pkg: PnutsPackage,
                   lexical: Map[String, Binding]): Option[AnyFunc] =
+    TypeChecker.check(func, TypeEnvironment.empty.inPackage(pkg.name))
     try
       val className = freshClassName(func.name.getOrElse("Lambda"))
       val bytes = buildClass(className, func.params, func.body)

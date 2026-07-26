@@ -4,6 +4,7 @@ import spnuts.ast.SourcePos
 import spnuts.interpreter.{Interpreter, RuntimeError}
 import spnuts.parser.{Lexer, Parser, ParseError}
 import spnuts.runtime.{Context, Operators}
+import spnuts.typing.TypeError
 
 /** Result of feeding one line of interactive input to a Repl. */
 enum StepResult:
@@ -94,7 +95,13 @@ class Repl(val ctx: Context = Context()):
     catch
       case e: ParseError   => formatError("Parse error", e.pos, e.message, code)
       case e: RuntimeError => formatError("Runtime error", e.pos, e.msg, code)
-      case e: Throwable    => s"Error: ${e.getMessage}"
+      case e: TypeError =>
+        val detail = (e.expected, e.actual) match
+          case (Some(expected), Some(actual)) =>
+            s"${e.msg} (expected ${expected.displayName}, actual ${actual.displayName})"
+          case _ => e.msg
+        formatError("Type error", e.pos, detail, code)
+      case e: Throwable => s"Error: ${e.getMessage}"
 
   private def formatError(kind: String, pos: SourcePos, msg: String, source: String): String =
     val header = s"$kind at $pos: $msg"

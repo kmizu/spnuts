@@ -31,13 +31,26 @@ object TypeCompat:
 
   private val numericWrappers: Set[Class[?]] = integerWrappers ++ floatWrappers
 
+  private val primitiveSemanticTypes: Set[Class[?]] =
+    numericWrappers ++ Set(
+      classOf[java.lang.Boolean],
+      java.lang.Byte.TYPE,
+      java.lang.Short.TYPE,
+      java.lang.Character.TYPE,
+      java.lang.Integer.TYPE,
+      java.lang.Long.TYPE,
+      java.lang.Float.TYPE,
+      java.lang.Double.TYPE,
+      java.lang.Boolean.TYPE,
+    )
+
   /**
    * Check whether `value` is compatible with the declared type `cls`.
    * Transparent widening: any integer type satisfies any integer annotation, etc.
    */
   def isCompatible(cls: Class[?], value: Any): Boolean =
-    if value == null then true
-    else if cls == classOf[scala.runtime.BoxedUnit] then true  // Unit accepts anything (void)
+    if cls == classOf[scala.runtime.BoxedUnit] then true  // Unit accepts anything (void)
+    else if value == null then !primitiveSemanticTypes.contains(cls)
     else if cls.isInstance(value) then true
     else
       val vc = value.getClass
@@ -45,6 +58,21 @@ object TypeCompat:
       (integerWrappers.contains(cls) && integerWrappers.contains(vc)) ||
       // numeric (int or float) → float widening
       (floatWrappers.contains(cls) && numericWrappers.contains(vc))
+
+  /** Store a compatible numeric value in the representation promised by `cls`. */
+  def coerce(cls: Class[?], value: Any): Any =
+    if value == null then null
+    else if cls == classOf[java.lang.Double] || cls == java.lang.Double.TYPE then
+      value match
+        case number: Number => number.doubleValue()
+        case char: Character => char.charValue().toDouble
+        case _ => value
+    else if cls == classOf[java.lang.Float] || cls == java.lang.Float.TYPE then
+      value match
+        case number: Number => number.floatValue()
+        case char: Character => char.charValue().toFloat
+        case _ => value
+    else value
 
   /** Human-readable type name using SPnuts alias names. */
   def typeName(cls: Class[?]): String =

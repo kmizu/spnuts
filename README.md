@@ -102,6 +102,47 @@ sbt "coreNative/test"
 sbt compile
 ```
 
+## Mandatory Gradual Typing
+
+SPnuts always type-checks each complete chunk before running it. This is
+mandatory behavior: there is no flag to disable or opt into checking.
+
+```pnuts
+var count = 1        // inferred as Long
+count = count + 1    // OK
+count = "two"        // Type error before this chunk runs
+
+val ratio: Double = 1  // Long -> Double widening
+
+function twice(x: Long): Long x * 2
+
+function inspect(value) { // value is Any
+  type(value)
+}
+```
+
+Unannotated bindings still receive an inferred, fixed type. `val` is
+immutable; `var` and the legacy assignment form (`name = value`) are mutable,
+but later values must remain compatible with the binding's type. The only
+implicit numeric widening is `Long` to `Double`.
+
+`Null` is compatible with reference static types, but not with primitive
+static types. Because legacy assignments are also inferred and fixed,
+`value = null` gives `value` the type `Null`; assigning a later non-null value
+is a type error.
+
+`Any` marks dynamic boundaries, including unannotated parameters and values
+coming from host, Java, or `eval` integration. Compatibility is structural and
+recursive, so `Any` also works inside collection and function types; existing
+runtime checks still protect concrete annotations when an `Any` value crosses
+such a boundary. An empty source list has type `List<Any>`, while an empty map
+expression constructed through the AST API has type `Map<Any, Any>`.
+Incompatible branch result types join to `Any`.
+
+Successful inferred types persist across REPL or evaluation chunks and are
+tracked separately by package. A chunk with a type error neither runs nor
+publishes its inferred type state.
+
 ## Language Overview
 
 ```pnuts

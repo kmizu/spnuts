@@ -20,8 +20,32 @@ final class PnutsPackage(val name: String, val parent: Option[PnutsPackage] = No
   /** Set a value in this package (creates binding if absent). */
   def set(sym: String, value: Any): Unit =
     symbols.get(sym) match
-      case Some(b) => b.value = value
+      case Some(b) =>
+        b.value = value
+        b.staticType = None
       case None    => symbols(sym) = Binding(value)
+
+  /** Set a script value using the target type proven for the active chunk. */
+  def setTyped(sym: String, value: Any, staticType: Class[?]): Unit =
+    symbols.get(sym) match
+      case Some(b) => b.setTyped(value, sym, staticType)
+      case None =>
+        if !TypeCompat.isCompatible(staticType, value) then
+          throw new RuntimeException(
+            s"Type error: variable '$sym' has type ${TypeCompat.typeName(staticType)} but assigned ${if value == null then "null" else TypeCompat.typeName(value.getClass)}"
+          )
+        symbols(sym) =
+          Binding(TypeCompat.coerce(staticType, value), staticType = Some(staticType))
+
+  /** Declare a script binding with explicit mutability and type metadata. */
+  def declare(
+    sym: String,
+    value: Any,
+    immutable: Boolean,
+    staticType: Option[Class[?]]
+  ): Unit =
+    val storedValue = staticType.map(TypeCompat.coerce(_, value)).getOrElse(value)
+    symbols(sym) = Binding(storedValue, immutable, staticType)
 
   /** Get or create a child package. */
   def child(childName: String): PnutsPackage =

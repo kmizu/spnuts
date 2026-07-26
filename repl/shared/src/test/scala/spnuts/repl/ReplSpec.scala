@@ -59,6 +59,27 @@ class ReplSpec extends AnyFlatSpec with Matchers:
     out should include ("Runtime error")
   }
 
+  "gradual typing diagnostics" should "include position, expected/actual, source, and caret" in {
+    val repl = freshRepl()
+    val output = repl.eval(
+      """x = 1
+        |x = "bad"""".stripMargin
+    )
+    output should include ("Type error at <repl>:2:5")
+    output should include ("expected Long")
+    output should include ("String")
+    output should include ("""x = "bad"""")
+    output should include ("^")
+  }
+
+  it should "retain an inferred type across separate inputs and recover after failure" in {
+    val repl = freshRepl()
+    repl.eval("x = 1") shouldBe "1"
+    repl.eval("""x = "bad"""") should include ("Type error")
+    repl.eval("x = true") should include ("Type error")
+    repl.eval("x + 1") shouldBe "2"
+  }
+
   "Repl.step" should "evaluate a complete single line immediately" in {
     val repl = freshRepl()
     repl.step("40 + 2") shouldBe StepResult.Output("42")

@@ -2,6 +2,8 @@ package spnuts.interpreter
 
 import spnuts.ast.*
 import spnuts.runtime.{*, given}
+import spnuts.typing.{StaticType, TypeChecker}
+import spnuts.typing.StaticType.*
 
 /**
  * Tree-walking interpreter for SPnuts.
@@ -17,10 +19,24 @@ object Interpreter:
    * Returns the result value (null for void statements).
    */
   def eval(expr: Expr, ctx: Context): Any =
-    // Wire interpreter callback once so built-in native functions can call user functions
-    if ctx.callFn == null then
-      ctx.callFn = (f, args, c, pos) => callValue(f, args, c, pos)
-    evalInner(expr, ctx)
+    val environment =
+      ctx.typingSession.snapshot.inPackage(ctx.currentPackage.name)
+    val checked = TypeChecker.check(expr, environment)
+    ctx.typingSession.begin(checked.nextEnvironment)
+    val savedTypeTable = ctx.activeTypeTable
+    ctx.activeTypeTable = Some(checked.table)
+    try
+      // Wire interpreter callback once so built-in native functions can call user functions
+      if ctx.callFn == null then
+        ctx.callFn = (f, args, c, pos) => callValue(f, args, c, pos)
+      val result = evalInner(expr, ctx)
+      ctx.typingSession.commit()
+      result
+    catch
+      case error: Throwable =>
+        ctx.typingSession.rollback()
+        throw error
+    finally ctx.activeTypeTable = savedTypeTable
 
   private def evalInner(expr: Expr, ctx: Context): Any = expr match
 
@@ -37,7 +53,7 @@ object Interpreter:
       val sb = new StringBuilder
       for part <- parts do part match
         case Left(s)  => sb ++= s
-        case Right(e) => sb ++= Operators.toStr(eval(e, ctx))
+        case Right(e) => sb ++= Operators.toStr(evalInner(e, ctx))
       sb.toString
 
     // ── Identifiers ───────────────────────────────────────────────────────────
@@ -59,78 +75,79 @@ object Interpreter:
     case BinaryExpr(op, lhs, rhs, pos) =>
       import BinOp.*
       op match
-        case Add    => Operators.add(eval(lhs, ctx), eval(rhs, ctx))
-        case Sub    => Operators.sub(eval(lhs, ctx), eval(rhs, ctx))
-        case Mul    => Operators.mul(eval(lhs, ctx), eval(rhs, ctx))
-        case Div    => Operators.div(eval(lhs, ctx), eval(rhs, ctx))
-        case Mod    => Operators.mod(eval(lhs, ctx), eval(rhs, ctx))
-        case BitAnd => Operators.bitAnd(eval(lhs, ctx), eval(rhs, ctx))
-        case BitOr  => Operators.bitOr(eval(lhs, ctx), eval(rhs, ctx))
-        case BitXor => Operators.bitXor(eval(lhs, ctx), eval(rhs, ctx))
-        case ShiftLeft => Operators.shl(eval(lhs, ctx), eval(rhs, ctx))
-        case ShiftRight => Operators.shr(eval(lhs, ctx), eval(rhs, ctx))
-        case UnsignedShiftRight => Operators.ushr(eval(lhs, ctx), eval(rhs, ctx))
-        case Eq    => Operators.eq(eval(lhs, ctx), eval(rhs, ctx))
-        case NotEq => !Operators.eq(eval(lhs, ctx), eval(rhs, ctx))
-        case Lt    => Operators.lt(eval(lhs, ctx), eval(rhs, ctx))
-        case Gt    => Operators.gt(eval(lhs, ctx), eval(rhs, ctx))
-        case Le    => Operators.le(eval(lhs, ctx), eval(rhs, ctx))
-        case Ge    => Operators.ge(eval(lhs, ctx), eval(rhs, ctx))
+        case Add    => Operators.add(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case Sub    => Operators.sub(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case Mul    => Operators.mul(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case Div    => Operators.div(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case Mod    => Operators.mod(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case BitAnd => Operators.bitAnd(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case BitOr  => Operators.bitOr(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case BitXor => Operators.bitXor(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case ShiftLeft => Operators.shl(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case ShiftRight => Operators.shr(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case UnsignedShiftRight => Operators.ushr(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case Eq    => Operators.eq(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case NotEq => !Operators.eq(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case Lt    => Operators.lt(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case Gt    => Operators.gt(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case Le    => Operators.le(evalInner(lhs, ctx), evalInner(rhs, ctx))
+        case Ge    => Operators.ge(evalInner(lhs, ctx), evalInner(rhs, ctx))
         case LogAnd =>
-          val l = eval(lhs, ctx)
-          if !Operators.toBoolean(l) then false else Operators.toBoolean(eval(rhs, ctx))
+          val l = evalInner(lhs, ctx)
+          if !Operators.toBoolean(l) then false else Operators.toBoolean(evalInner(rhs, ctx))
         case LogOr =>
-          val l = eval(lhs, ctx)
-          if Operators.toBoolean(l) then true else Operators.toBoolean(eval(rhs, ctx))
+          val l = evalInner(lhs, ctx)
+          if Operators.toBoolean(l) then true else Operators.toBoolean(evalInner(rhs, ctx))
 
     case UnaryExpr(op, operand, pos) =>
       import UnaryOp.*
       op match
-        case Neg     => Operators.neg(eval(operand, ctx))
-        case BitNot  => Operators.bitNot(eval(operand, ctx))
-        case LogNot  => !Operators.toBoolean(eval(operand, ctx))
+        case Neg     => Operators.neg(evalInner(operand, ctx))
+        case BitNot  => Operators.bitNot(evalInner(operand, ctx))
+        case LogNot  => !Operators.toBoolean(evalInner(operand, ctx))
         case PreIncr => doIncr(operand, ctx, delta = 1L, returnOld = false)
         case PreDecr => doIncr(operand, ctx, delta = -1L, returnOld = false)
         case PostIncr=> doIncr(operand, ctx, delta = 1L, returnOld = true)
         case PostDecr=> doIncr(operand, ctx, delta = -1L, returnOld = true)
 
     case TernaryExpr(cond, thenE, elseE, _) =>
-      if Operators.toBoolean(eval(cond, ctx)) then eval(thenE, ctx)
-      else eval(elseE, ctx)
+      if Operators.toBoolean(evalInner(cond, ctx)) then evalInner(thenE, ctx)
+      else evalInner(elseE, ctx)
 
     case InstanceofExpr(expr, typeName, pos) =>
-      val obj = eval(expr, ctx)
+      val obj = evalInner(expr, ctx)
       val cls = resolveClass(typeName, ctx, pos)
       cls.isInstance(obj)
 
     // ── Variable declaration (val/var) ────────────────────────────────────────
 
     case VarDecl(kind, name, typeName, value, pos) =>
-      val v = eval(value, ctx)
+      val v = evalInner(value, ctx)
       // Determine the static type: explicit annotation takes priority, else infer from value
-      val staticType: Option[Class[?]] = typeName match
+      val declaration = typeName match
         case Some(te) =>
           val cls = resolveTypeExpr(te, Map.empty, ctx, pos)
-          if v != null && !cls.isInstance(v) then
+          if !TypeCompat.isCompatible(cls, v) then
             throw RuntimeError(
-              s"Type error: '$name' declared as ${te.toDisplayString} but got ${v.getClass.getSimpleName}", pos)
-          Some(cls)
+              s"Type error: '$name' declared as ${te.toDisplayString} but got ${runtimeTypeName(v)}", pos)
+          (TypeCompat.coerce(cls, v), Some(cls))
         case None =>
           // Infer type from the actual value (local type inference)
-          if v != null then Some(v.getClass) else None
+          (v, if v != null then Some(v.getClass) else None)
+      val storedValue = declaration._1
+      val staticType = declaration._2
       val immutable = kind == DeclKind.Val
-      ctx.declareVar(name, v, immutable, staticType)
-      v
+      ctx.declareVar(name, storedValue, immutable, staticType)
+      storedValue
 
     // ── Assignment ────────────────────────────────────────────────────────────
 
     case Assignment(op, lhs, rhs, pos) =>
       val value = computeAssign(op, lhs, rhs, ctx, pos)
       assignTo(lhs, value, ctx, pos)
-      value
 
     case MultiAssign(targets, rhs, pos) =>
-      val value = eval(rhs, ctx)
+      val value = evalInner(rhs, ctx)
       value match
         case arr: Array[?] =>
           for (t, i) <- targets.zipWithIndex do
@@ -144,37 +161,37 @@ object Interpreter:
 
     case ListExpr(elements, _, _) =>
       val arr = new Array[Any](elements.size)
-      for (e, i) <- elements.zipWithIndex do arr(i) = eval(e, ctx)
+      for (e, i) <- elements.zipWithIndex do arr(i) = evalInner(e, ctx)
       arr
 
     case MapExpr(entries, _) =>
       val m = new java.util.LinkedHashMap[Any, Any]()
-      for (k, v) <- entries do m.put(eval(k, ctx), eval(v, ctx))
+      for (k, v) <- entries do m.put(evalInner(k, ctx), evalInner(v, ctx))
       m
 
     // ── Block / ExprList ──────────────────────────────────────────────────────
 
     case Block(exprs, _) =>
       if exprs.isEmpty then null
-      else exprs.foldLeft[Any](null)((_, e) => eval(e, ctx))
+      else exprs.foldLeft[Any](null)((_, e) => evalInner(e, ctx))
 
     case ExprList(exprs, _) =>
       if exprs.isEmpty then null
-      else exprs.foldLeft[Any](null)((_, e) => eval(e, ctx))
+      else exprs.foldLeft[Any](null)((_, e) => evalInner(e, ctx))
 
     // ── Control flow ──────────────────────────────────────────────────────────
 
     case IfExpr(cond, thenB, elseIfs, elseBranch, _) =>
-      if Operators.toBoolean(eval(cond, ctx)) then eval(thenB, ctx)
+      if Operators.toBoolean(evalInner(cond, ctx)) then evalInner(thenB, ctx)
       else
-        elseIfs.find(ei => Operators.toBoolean(eval(ei._1, ctx))) match
-          case Some((_, body)) => eval(body, ctx)
-          case None => elseBranch.map(eval(_, ctx)).getOrElse(null)
+        elseIfs.find(ei => Operators.toBoolean(evalInner(ei._1, ctx))) match
+          case Some((_, body)) => evalInner(body, ctx)
+          case None => elseBranch.map(evalInner(_, ctx)).getOrElse(null)
 
     case WhileExpr(cond, body, _) =>
       var result: Any = null
-      while Operators.toBoolean(eval(cond, ctx)) do
-        try result = eval(body, ctx)
+      while Operators.toBoolean(evalInner(cond, ctx)) do
+        try result = evalInner(body, ctx)
         catch
           case _: ContinueException.type => ()
           case e: BreakException => return e.value
@@ -184,31 +201,31 @@ object Interpreter:
       var result: Any = null
       var running = true
       while running do
-        try result = eval(body, ctx)
+        try result = evalInner(body, ctx)
         catch
           case _: ContinueException.type => ()
           case e: BreakException => return e.value
-        running = Operators.toBoolean(eval(cond, ctx))
+        running = Operators.toBoolean(evalInner(cond, ctx))
       result
 
     case ForExpr(init, cond, update, body, _) =>
       ctx.openScope()
       try
-        init.foreach(eval(_, ctx))
+        init.foreach(evalInner(_, ctx))
         var result: Any = null
-        var running = cond.map(c => Operators.toBoolean(eval(c, ctx))).getOrElse(true)
+        var running = cond.map(c => Operators.toBoolean(evalInner(c, ctx))).getOrElse(true)
         while running do
-          try result = eval(body, ctx)
+          try result = evalInner(body, ctx)
           catch
             case _: ContinueException.type => ()
             case e: BreakException => return e.value
-          update.foreach(eval(_, ctx))
-          running = cond.map(c => Operators.toBoolean(eval(c, ctx))).getOrElse(true)
+          update.foreach(evalInner(_, ctx))
+          running = cond.map(c => Operators.toBoolean(evalInner(c, ctx))).getOrElse(true)
         result
       finally ctx.closeScope()
 
     case ForEachExpr(vars, iterable, body, pos) =>
-      val col = eval(iterable, ctx)
+      val col = evalInner(iterable, ctx)
       var result: Any = null
       ctx.openScope()
       try
@@ -217,7 +234,7 @@ object Interpreter:
       result
 
     case ForeachExpr(varName, iterable, body, pos) =>
-      val col = eval(iterable, ctx)
+      val col = evalInner(iterable, ctx)
       var result: Any = null
       ctx.openScope()
       try
@@ -226,7 +243,7 @@ object Interpreter:
       result
 
     case SwitchExpr(target, cases, _) =>
-      val v = eval(target, ctx)
+      val v = evalInner(target, ctx)
       var result: Any = null
       try
         var matched = false
@@ -234,10 +251,10 @@ object Interpreter:
           if !matched then
             matched = c.labels.exists {
               case None    => true  // default
-              case Some(e) => Operators.eq(v, eval(e, ctx))
+              case Some(e) => Operators.eq(v, evalInner(e, ctx))
             }
           if matched then
-            result = eval(c.body, ctx)
+            result = evalInner(c.body, ctx)
       catch
         case e: BreakException => return e.value
       result
@@ -273,23 +290,23 @@ object Interpreter:
       group
 
     case ReturnExpr(value, _) =>
-      throw ReturnException(value.map(eval(_, ctx)).getOrElse(null))
+      throw ReturnException(value.map(evalInner(_, ctx)).getOrElse(null))
 
     case BreakExpr(value, _) =>
-      throw BreakException(value.map(eval(_, ctx)).getOrElse(null))
+      throw BreakException(value.map(evalInner(_, ctx)).getOrElse(null))
 
     case ContinueExpr(_) =>
       throw ContinueException
 
     case YieldExpr(value, _) =>
-      val v = value.map(eval(_, ctx)).getOrElse(null)
+      val v = value.map(evalInner(_, ctx)).getOrElse(null)
       if ctx.yieldBuf == null then ctx.yieldBuf = new java.util.ArrayList[Any]()
       ctx.yieldBuf.add(v)
       null
 
     case RangeExpr(from, to, _) =>
-      val f = Operators.toLong(eval(from, ctx))
-      val t = Operators.toLong(eval(to, ctx))
+      val f = Operators.toLong(evalInner(from, ctx))
+      val t = Operators.toLong(evalInner(to, ctx))
       val n = ((t - f) + 1).toInt max 0
       val arr = new Array[Any](n)
       for i <- 0 until n do arr(i) = f + i
@@ -298,37 +315,37 @@ object Interpreter:
     // ── Function call ─────────────────────────────────────────────────────────
 
     case FuncCall(func, args, pos) =>
-      val f = eval(func, ctx)
-      val argVals = args.map(eval(_, ctx)).toArray
+      val f = evalInner(func, ctx)
+      val argVals = args.map(evalInner(_, ctx)).toArray
       callValue(f, argVals, ctx, pos)
 
     case MethodCall(obj, method, args, pos) =>
-      val target  = eval(obj, ctx)
-      val argVals = args.map(eval(_, ctx)).toArray
+      val target  = evalInner(obj, ctx)
+      val argVals = args.map(evalInner(_, ctx)).toArray
       callMethod(target, method, argVals, ctx, pos)
 
     case StaticMethodCall(obj, method, args, pos) =>
-      val target  = eval(obj, ctx)
-      val argVals = args.map(eval(_, ctx)).toArray
+      val target  = evalInner(obj, ctx)
+      val argVals = args.map(evalInner(_, ctx)).toArray
       callMethod(target, method, argVals, ctx, pos)
 
     case MemberAccess(obj, member, pos) =>
-      val target = eval(obj, ctx)
+      val target = evalInner(obj, ctx)
       getField(target, member, ctx, pos)
 
     case StaticMemberAccess(obj, member, pos) =>
-      val target = eval(obj, ctx)
+      val target = evalInner(obj, ctx)
       getField(target, member, ctx, pos)
 
     case IndexAccess(obj, index, pos) =>
-      val target = eval(obj, ctx)
-      val idx    = eval(index, ctx)
+      val target = evalInner(obj, ctx)
+      val idx    = evalInner(index, ctx)
       getElement(target, idx, pos)
 
     case RangeAccess(obj, from, to, pos) =>
-      val target = eval(obj, ctx)
-      val f = eval(from, ctx)
-      val t = to.map(eval(_, ctx))
+      val target = evalInner(obj, ctx)
+      val f = evalInner(from, ctx)
+      val t = to.map(evalInner(_, ctx))
       getRange(target, f, t, pos)
 
     // ── Exception handling ─────────────────────────────────────────────────────
@@ -336,7 +353,7 @@ object Interpreter:
     case TryExpr(body, catches, fin, _) =>
       var result: Any = null
       try
-        result = eval(body, ctx)
+        result = evalInner(body, ctx)
       catch
         case e: Throwable if !e.isInstanceOf[ReturnException] &&
                              !e.isInstanceOf[BreakException]  &&
@@ -353,15 +370,15 @@ object Interpreter:
               ctx.openScope()
               try
                 ctx.setValue(c.varName, e)
-                result = eval(c.body, ctx)
+                result = evalInner(c.body, ctx)
               finally ctx.closeScope()
             case None => throw e
       finally
-        fin.foreach(eval(_, ctx))
+        fin.foreach(evalInner(_, ctx))
       result
 
     case ThrowExpr(expr, pos) =>
-      val v = expr.map(eval(_, ctx)).getOrElse(null)
+      val v = expr.map(evalInner(_, ctx)).getOrElse(null)
       v match
         case t: Throwable => throw t
         case _            => throw new RuntimeException(Operators.toStr(v))
@@ -369,7 +386,7 @@ object Interpreter:
     // ── Package / Import ───────────────────────────────────────────────────────
 
     case PackageExpr(parts, dynamic, _) =>
-      val name = dynamic.map(e => Operators.toStr(eval(e, ctx)))
+      val name = dynamic.map(e => Operators.toStr(evalInner(e, ctx)))
                         .getOrElse(parts.mkString("."))
       // navigate to or create the package
       val pkg = name.split('.').foldLeft(PnutsPackage.global)(_.child(_))
@@ -377,7 +394,7 @@ object Interpreter:
       pkg
 
     case ImportExpr(parts, wildcard, isStatic, dynamic, _) =>
-      val importStr = dynamic.map(e => Operators.toStr(eval(e, ctx)))
+      val importStr = dynamic.map(e => Operators.toStr(evalInner(e, ctx)))
                              .getOrElse(parts.mkString(".") + (if wildcard then ".*" else ""))
       ctx.imports += importStr
       importStr
@@ -388,25 +405,29 @@ object Interpreter:
       resolveClass(name, ctx, pos)
 
     case ClassExpr(expr, pos) =>
-      val v = eval(expr, ctx)
+      val v = evalInner(expr, ctx)
       v match
         case s: String => resolveClass(List(s), ctx, pos)
         case c: Class[?] => c
         case _ => throw RuntimeError(s"class() requires a class name, got $v", pos)
 
     case NewExpr(className, dims, args, body, pos) =>
-      val cls = resolveClass(className, ctx, pos)
       if dims.nonEmpty then
         // Array creation: new Type[n]
-        val size = Operators.toLong(eval(dims.head, ctx)).toInt
+        val cls = resolveTypeExpr(TypeExpr(className), Map.empty, ctx, pos)
+        val size = Operators.toLong(evalInner(dims.head, ctx)).toInt
         JavaInteropShim.newArray(cls, size)
       else
-        val argVals = args.map(eval(_, ctx)).toArray
+        val cls = resolveClass(className, ctx, pos)
+        val argVals = args.map(evalInner(_, ctx)).toArray
         callConstructor(cls, argVals, pos)
 
-    case CastExpr(typeName, _, expr, pos) =>
-      val v   = eval(expr, ctx)
-      val cls = resolveClass(typeName, ctx, pos)
+    case CastExpr(typeName, arrayDims, expr, pos) =>
+      val v   = evalInner(expr, ctx)
+      val castType = (0 until arrayDims).foldLeft(TypeExpr(typeName)) {
+        (elementType, _) => TypeExpr.array(elementType)
+      }
+      val cls = resolveTypeExpr(castType, Map.empty, ctx, pos)
       castValue(v, cls, pos)
 
     // ── Bean / class def (stubs) ───────────────────────────────────────────────
@@ -415,7 +436,7 @@ object Interpreter:
       val cls = resolveClass(typeName, ctx, pos)
       val obj = JavaInteropShim.newInstance(cls)
       for p <- props do
-        setProperty(obj, p.name, eval(p.value, ctx), pos)
+        setProperty(obj, p.name, evalInner(p.value, ctx), pos)
       obj
 
     case ClassDef(name, _, _, _, _) =>
@@ -430,8 +451,8 @@ object Interpreter:
 
     // CatchExpr / FinallyExpr: functional exception-handling forms
     case CatchExpr(cls, handler, pos) =>
-      val clsVal    = eval(cls, ctx)
-      val handlerFn = eval(handler, ctx)
+      val clsVal    = evalInner(cls, ctx)
+      val handlerFn = evalInner(handler, ctx)
       // Returns a function that wraps its argument body in try/catch
       NativeFunc.vararg("$catch") { (args, c) =>
         try
@@ -447,8 +468,8 @@ object Interpreter:
       }
 
     case FinallyExpr(body, finalizer, pos) =>
-      try eval(body, ctx)
-      finally finalizer.foreach(eval(_, ctx))
+      try evalInner(body, ctx)
+      finally finalizer.foreach(evalInner(_, ctx))
 
     case e =>
       throw UnsupportedOperationError(s"Unimplemented AST node: ${e.getClass.getSimpleName}")
@@ -501,7 +522,7 @@ object Interpreter:
               throw RuntimeError(
                 s"Type error: parameter '${func.params(i)}' expects ${te.toDisplayString} but got ${if arg == null then "null" else TypeCompat.typeName(arg.getClass)}", pos)
             // Coerce numeric arg to declared type for transparent widening (e.g. Long→Double)
-            a(i) = coerceNumericArg(cls, arg)
+            a(i) = TypeCompat.coerce(cls, arg)
         }
       a
     else args
@@ -512,7 +533,7 @@ object Interpreter:
     ctx.openFrame(func, checkedArgs)
     ctx.currentPackage = func.pkg
     try
-      var result: Any = try eval(func.body, ctx) catch { case e: ReturnException => e.value }
+      var result: Any = try evalInner(func.body, ctx) catch { case e: ReturnException => e.value }
       // Type-check / coerce return value
       func.returnType.foreach { te =>
         if TypeExpr.isFuncType(te) || TypeExpr.isVarargFuncType(te) then
@@ -524,6 +545,7 @@ object Interpreter:
           if !TypeCompat.isCompatible(cls, result) then
             throw RuntimeError(
               s"Type error: ${func.name.getOrElse("<function>")} declared return type ${te.toDisplayString} but returned ${if result == null then "null" else TypeCompat.typeName(result.getClass)}", pos)
+          result = TypeCompat.coerce(cls, result)
       }
       // If any yield was called, return accumulated values as array
       val buf = ctx.yieldBuf
@@ -603,33 +625,57 @@ object Interpreter:
         // arr[a..b] is inclusive on both ends (like Ruby)
         val end = to.map(v => Operators.toLong(v).toInt + 1).getOrElse(arr.length)
         arr.slice(start, end)
+      case list: java.util.List[?] =>
+        val end =
+          to.map(v => Operators.toLong(v).toInt + 1).getOrElse(list.size)
+        val boundedStart = start.max(0).min(list.size)
+        val boundedEnd = end.max(boundedStart).min(list.size)
+        val result = new java.util.ArrayList[Any](boundedEnd - boundedStart)
+        for index <- boundedStart until boundedEnd do
+          result.add(list.get(index))
+        result
       case s: String =>
         val end = to.map(v => Operators.toLong(v).toInt + 1).getOrElse(s.length)
         s.substring(start, end min s.length)
       case _ =>
         throw RuntimeError(s"Range access not supported for ${target.getClass.getSimpleName}", pos)
 
-  private def assignTo(lhs: Expr, value: Any, ctx: Context, pos: spnuts.ast.SourcePos): Unit =
+  private def assignTo(lhs: Expr, value: Any, ctx: Context, pos: spnuts.ast.SourcePos): Any =
     lhs match
-      case Ident(name, _)        => ctx.setValue(name, value)
-      case GlobalRef(name, _)    => PnutsPackage.global.set(name, value)
+      case Ident(name, _) =>
+        try ctx.setValue(name, value, runtimeTargetClass(lhs, ctx, pos))
+        catch
+          case error: RuntimeException =>
+            throw RuntimeError(error.getMessage, pos, error)
+        ctx.getValue(name)
+      case GlobalRef(name, _) =>
+        try
+          runtimeTargetClass(lhs, ctx, pos) match
+            case Some(cls) => PnutsPackage.global.setTyped(name, value, cls)
+            case None => PnutsPackage.global.set(name, value)
+        catch
+          case error: RuntimeException =>
+            throw RuntimeError(error.getMessage, pos, error)
+        PnutsPackage.global.lookup(name).map(_.value).orNull
       case IndexAccess(obj, idx, p) =>
-        val target = eval(obj, ctx)
-        val i = eval(idx, ctx)
+        val target = evalInner(obj, ctx)
+        val i = evalInner(idx, ctx)
         setElement(target, i, value, p)
+        value
       case MemberAccess(obj, member, p) =>
-        val target = eval(obj, ctx)
+        val target = evalInner(obj, ctx)
         JavaInteropShim.setField(target, member, value, p)
+        value
       case _ =>
         throw RuntimeError(s"Invalid assignment target: ${lhs.getClass.getSimpleName}", pos)
 
   private def computeAssign(op: AssignOp, lhs: Expr, rhs: Expr, ctx: Context, pos: spnuts.ast.SourcePos): Any =
     import AssignOp.*
     op match
-      case Assign => eval(rhs, ctx)
+      case Assign => evalInner(rhs, ctx)
       case _ =>
-        val current = eval(lhs, ctx)
-        val rhsVal  = eval(rhs, ctx)
+        val current = evalInner(lhs, ctx)
+        val rhsVal  = evalInner(rhs, ctx)
         op match
           case AddAssign => Operators.add(current, rhsVal)
           case SubAssign => Operators.sub(current, rhsVal)
@@ -642,13 +688,13 @@ object Interpreter:
           case ShiftLeftAssign => Operators.shl(current, rhsVal)
           case ShiftRightAssign => Operators.shr(current, rhsVal)
           case UnsignedShiftRightAssign => Operators.ushr(current, rhsVal)
-          case Assign => eval(rhs, ctx)
+          case Assign => evalInner(rhs, ctx)
 
   private def doIncr(target: Expr, ctx: Context, delta: Long, returnOld: Boolean): Any =
-    val old = eval(target, ctx)
+    val old = evalInner(target, ctx)
     val newVal = Operators.add(old, delta)
-    assignTo(target, newVal, ctx, target.pos)
-    if returnOld then old else newVal
+    val stored = assignTo(target, newVal, ctx, target.pos)
+    if returnOld then old else stored
 
   private def setElement(target: Any, idx: Any, value: Any, pos: spnuts.ast.SourcePos): Unit =
     target match
@@ -665,7 +711,7 @@ object Interpreter:
       case arr: Array[?] =>
         for item <- arr do
           vars.head match { case v => ctx.setValue(v, item) }
-          try onResult(eval(body, ctx))
+          try onResult(evalInner(body, ctx))
           catch
             case _: ContinueException.type => ()
             case e: BreakException => return
@@ -674,7 +720,7 @@ object Interpreter:
         while it.hasNext do
           val item = it.next()
           ctx.setValue(vars.head, item)
-          try onResult(eval(body, ctx))
+          try onResult(evalInner(body, ctx))
           catch
             case _: ContinueException.type => ()
             case e: BreakException => return
@@ -711,14 +757,36 @@ object Interpreter:
     "Unit"    -> classOf[scala.runtime.BoxedUnit],
   )
 
-  /** Coerce a value to the declared numeric type (e.g. Long→Double for transparent widening). */
-  private def coerceNumericArg(cls: Class[?], value: Any): Any =
-    if value == null then null
-    else if (cls == classOf[java.lang.Double] || cls == classOf[Double]) && !value.isInstanceOf[Double] then
-      Operators.toDouble(value)
-    else if (cls == classOf[java.lang.Float] || cls == classOf[Float]) && !value.isInstanceOf[Float] then
-      Operators.toDouble(value).toFloat
-    else value
+  private def runtimeTypeName(value: Any): String =
+    if value == null then "null"
+    else TypeCompat.typeName(value.getClass)
+
+  private def runtimeTargetClass(
+    target: Expr,
+    ctx: Context,
+    pos: spnuts.ast.SourcePos
+  ): Option[Class[?]] =
+    ctx.activeTypeTable
+      .flatMap(_.get(target))
+      .flatMap(runtimeClassForStaticType(_, ctx, pos))
+
+  private def runtimeClassForStaticType(
+    staticType: StaticType,
+    ctx: Context,
+    pos: spnuts.ast.SourcePos
+  ): Option[Class[?]] =
+    staticType match
+      case LongType => Some(classOf[java.lang.Long])
+      case DoubleType => Some(classOf[java.lang.Double])
+      case BooleanType => Some(classOf[java.lang.Boolean])
+      case CharType => Some(classOf[java.lang.Character])
+      case StringType => Some(classOf[String])
+      case UnitType => Some(classOf[scala.runtime.BoxedUnit])
+      case ArrayType(elementType) =>
+        runtimeClassForStaticType(elementType, ctx, pos).map(JavaInteropShim.arrayClass)
+      case NamedType(name, _) =>
+        Some(resolveClass(name.split('.').toList, ctx, pos))
+      case _ => None
 
   private def resolveTypeExpr(
     te: TypeExpr,
