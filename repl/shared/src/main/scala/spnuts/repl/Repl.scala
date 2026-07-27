@@ -25,7 +25,7 @@ class Repl(val ctx: Context = Context()):
   private var buffer: String = ""
 
   private def banner: String =
-    """SPnuts 0.1.0 (Scala reimplementation)
+    """SPnuts 0.2.0 (Scala reimplementation)
       |Thanks to Tomatsu-san for the original Pnuts.
       |Type :quit to exit, :help for commands.""".stripMargin
 

@@ -4,7 +4,7 @@ A Scala 3 reimplementation of the [Pnuts](https://pnuts.dev.java.net/) scripting
 
 Builds for both **JVM** and **Scala Native** (cross-platform).
 
-## Download SPnuts 0.1.0
+## Download SPnuts 0.2.0
 
 Runnable JVM and Linux Native distributions, their checksums, and installation
 instructions are published on the [SPnuts release site](https://kmizu.github.io/spnuts/).
@@ -31,7 +31,7 @@ sbt "replJVM/run"
 ```
 
 ```
-SPnuts 0.1.0 (Scala reimplementation)
+SPnuts 0.2.0 (Scala reimplementation)
 Thanks to Tomatsu-san for the original Pnuts.
 Type :quit to exit, :help for commands.
 pnuts> function fib(n) {
