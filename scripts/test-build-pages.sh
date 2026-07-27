@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-version=${1:-0.1.0}
+version=${1:-0.2.0}
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -22,6 +22,10 @@ test -f "$work/pages/downloads/manifest.json"
 grep -F "SPnuts $version" "$work/pages/index.html"
 grep -F "$jvm_archive" "$work/pages/index.html"
 grep -F "$native_archive" "$work/pages/index.html"
+grep -F "What's new in SPnuts $version" "$work/pages/index.html"
+grep -F "Mandatory gradual typing" "$work/pages/index.html"
+grep -F 'count = "two"' "$work/pages/index.html"
+grep -F "rejected before the chunk runs" "$work/pages/index.html"
 cmp "$work/release/$jvm_archive" "$work/pages/downloads/$jvm_archive"
 cmp "$work/release/$native_archive" "$work/pages/downloads/$native_archive"
 cmp "$work/release/SHA256SUMS" "$work/pages/downloads/SHA256SUMS"

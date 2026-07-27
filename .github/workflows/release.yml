@@ -22,12 +22,16 @@ jobs:
       version: ${{ steps.version.outputs.value }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/v{0}', inputs.version) || github.ref }}
+          fetch-depth: 0
 
       - name: Set release version
         id: version
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
+          set -euo pipefail
           if [ "${GITHUB_REF_TYPE}" = tag ]; then
             version="${GITHUB_REF_NAME#v}"
           else
@@ -35,11 +39,15 @@ jobs:
           fi
           test -n "$version"
           test "$(sed -nE 's/^ThisBuild \/ version[[:space:]]*:=[[:space:]]*"([^"]+)".*/\1/p' build.sbt)" = "$version"
+          tag="v$version"
+          git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null
+          tag_commit="$(git rev-list -n 1 "$tag")"
+          test "$(git rev-parse HEAD)" = "$tag_commit"
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-java@v4
         with:
-          java-version: "21"
+          java-version: "17"
           distribution: temurin
           cache: sbt
 
@@ -50,7 +58,7 @@ jobs:
 
       - name: Test source and release contracts
         run: |
-          sbt "coreJVM/test" "replJVM/test"
+          sbt test
           bash scripts/test-release-version.sh "${{ steps.version.outputs.value }}"
           bash scripts/test-package-release.sh "${{ steps.version.outputs.value }}"
           bash scripts/test-build-pages.sh "${{ steps.version.outputs.value }}"
@@ -92,7 +100,7 @@ jobs:
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             gh release upload "v$VERSION" release/* --clobber
           else
-            gh release create "v$VERSION" release/* --target "$GITHUB_SHA" --title "SPnuts $VERSION" --generate-notes
+            gh release create "v$VERSION" release/* --verify-tag --title "SPnuts $VERSION" --generate-notes
           fi
 
   pages:

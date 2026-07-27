@@ -28,6 +28,15 @@
         <p>Verify either download with <a href="downloads/SHA256SUMS">SHA256SUMS</a>.</p>
       </section>
 
+      <section aria-labelledby="whats-new">
+        <h2 id="whats-new">What's new in SPnuts {{VERSION}}</h2>
+        <p><strong>Mandatory gradual typing</strong> checks each complete chunk before it runs. Unannotated bindings get fixed inferred types, while <code>Any</code> keeps Java, host, and <code>eval</code> boundaries dynamic.</p>
+        <pre><code>var count = 1
+count = count + 1
+count = "two"  // Type error: rejected before the chunk runs</code></pre>
+        <p>Type errors include expected and actual types, source position, and a caret. A rejected chunk publishes neither side effects nor inferred type state.</p>
+      </section>
+
       <section aria-labelledby="quick-start">
         <h2 id="quick-start">Quick start</h2>
         <pre><code>tar -xzf spnuts-{{VERSION}}-jvm.tar.gz
@@ -52,7 +61,7 @@ pnuts&gt; fib(10)
 
       <section aria-labelledby="about">
         <h2 id="about">Why this release</h2>
-        <p>Pnuts was created at Sun Microsystems by Toyokazu Tomatsu. After receiving permission to continue the project, SPnuts is the first Scala-based implementation released to carry that work forward.</p>
+        <p>Pnuts was created at Sun Microsystems by Toyokazu Tomatsu. After receiving permission to continue the project, SPnuts carries that work forward as a Scala implementation. Version 0.2.0 adds mandatory gradual typing.</p>
         <p>Source, issue tracking, and build instructions live at <a href="https://github.com/kmizu/spnuts">github.com/kmizu/spnuts</a>. SPnuts is distributed under the <a href="LICENSE">Sun Public License 1.0</a> used by Pnuts.</p>
       </section>
     </main>

@@ -4,7 +4,7 @@
 
 **JVM** と **Scala Native** の両方でビルド可能なクロスプラットフォーム実装です。
 
-## SPnuts 0.1.0 をダウンロード
+## SPnuts 0.2.0 をダウンロード
 
 実行可能な JVM 版・Linux Native 版、チェックサム、導入手順は
 [SPnuts 配布ページ](https://kmizu.github.io/spnuts/) で公開しています。
@@ -167,7 +167,7 @@ spnuts/
 
 - sbt 1.9以上
 - Scala 3.3.1
-- JDK 11以上
+- JDK 17以上
 - （オプション）Scala Native 0.5.6 ツールチェーン（ネイティブビルドの場合）
 
 ## 背景
