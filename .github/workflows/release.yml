@@ -50,7 +50,7 @@ jobs:
 
       - name: Test source and release contracts
         run: |
-          sbt "coreJVM/test" "replJVM/test"
+          sbt test
           bash scripts/test-release-version.sh "${{ steps.version.outputs.value }}"
           bash scripts/test-package-release.sh "${{ steps.version.outputs.value }}"
           bash scripts/test-build-pages.sh "${{ steps.version.outputs.value }}"
